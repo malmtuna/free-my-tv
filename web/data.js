@@ -79,11 +79,13 @@ var Prefs = (function () {
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
-    /** Picks per tab: 3 (as it was) up to 6. */
-    cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 6 ? 6 : n; },
+    /** Picks per tab: 3 (as it was) up to 10. */
+    cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 10 ? 10 : n; },
     /** Cartoons and anime out of the picks (Home Settings), or config.properties' hide_animation. */
     hideAnimation: function () { return pick('hideAnimation', CONFIG.hideAnimation === true) === true; },
     shelf: function () { return pick('shelf', null); },
+    /** DodgyBox (HDMI 2) has been put on a shelf picked on the TV once: taken off again in the Shelf editor, it stays off. */
+    dodgyAdded: function () { return pick('dodgyAdded', false) === true; },
     /** The shelf_apps of the build that last set the shelf, so a new one wins once over the TV's choice. */
     shelfConfig: function () { return pick('shelfConfig', ''); },
     /** The weather's city, picked on the TV (Home Settings → City), or config.properties' (or the time zone's). */
@@ -94,6 +96,8 @@ var Prefs = (function () {
     tmdbKey: function () { return String(pick('tmdbKey', CONFIG.tmdbKey || '')).trim(); },
     /** True when the key in use was typed on the TV (Remove takes it back to config.properties'). */
     tmdbKeyOnTV: function () { return v.tmdbKey !== undefined; },
+    /** The OMDb key typed on the TV (Home Settings → OMDb key), for the IMDb and Rotten Tomatoes ratings ('' for none). */
+    omdbKey: function () { return String(pick('omdbKey', '')).trim(); },
     setCity: function (name, lat, lon) { v.city = name; v.latitude = lat; v.longitude = lon; save(); this.version++; },
     /** Streaming services (keys like "netflix") whose titles are left out of the picks. */
     serviceOff: function (key) { return pick('servicesOff', []).indexOf(key) >= 0; },
@@ -469,9 +473,50 @@ var Data = (function () {
     return best;
   }
 
-  /** Genre, runtime or seasons, and the service it's on among the TV's apps. */
+  // MARK: - Ratings (OMDb: IMDb's and Rotten Tomatoes' scores, with a key typed on the TV)
+
+  var OMDB = 'https://www.omdbapi.com/';
+  var RATED_FOR = 3 * 86400000;   // scores change slowly, and the free key has 1,000 requests a day
+  var ratings = stored('ratings') || {};   // IMDb id -> {text, at}
+
+  /** Asks OMDb whether a key works before it's saved: done(error), with error.rejected when OMDb said no. */
+  function checkOmdbKey(key, done) {
+    get(OMDB + '?i=tt0111161&apikey=' + encodeURIComponent(key), {}, function (err, o) {
+      if (!err && o && o.Response === 'False') err = new Error(o.Error || 'OMDb said no');
+      if (err && /401|rejected|invalid/i.test(err.message)) err.rejected = true;
+      done(err || null);
+    });
+  }
+
+  /** "IMDb 7.8 · RT 92%" for a pick, when there's an OMDb key; '' when OMDb has none (or didn't answer). */
+  function rate(p, done) {
+    var key = Prefs.omdbKey(), t = Date.now();
+    if (!key) { done(); return; }
+    if (!p.imdb) { p.ratings = ''; done(); return; }
+    var known = ratings[p.imdb];
+    if (known && t - known.at < RATED_FOR && t >= known.at) { p.ratings = known.text; done(); return; }
+    get(OMDB + '?i=' + encodeURIComponent(p.imdb) + '&apikey=' + encodeURIComponent(key), {}, function (err, o) {
+      // Failed: nothing this time, and no asking again until the list is made again (never in a loop).
+      if (err || !o || o.Response === 'False') { p.ratings = ''; done(); return; }
+      var parts = [];
+      if (o.imdbRating && o.imdbRating !== 'N/A') parts.push('IMDb ' + o.imdbRating);
+      for (var i = 0; o.Ratings && i < o.Ratings.length; i++) {
+        if (o.Ratings[i].Source === 'Rotten Tomatoes') parts.push('RT ' + o.Ratings[i].Value);
+      }
+      p.ratings = parts.join('  ·  ');
+      for (var id in ratings) if (ratings.hasOwnProperty(id) && !(t - ratings[id].at < RATED_FOR)) delete ratings[id];
+      ratings[p.imdb] = {text: p.ratings, at: t};
+      store('ratings', ratings);
+      done();
+    });
+  }
+
+  /** A pick still to fill in: its details, or its ratings once there's an OMDb key. */
+  function unfinished(p) { return !p.detailed || (!!Prefs.omdbKey() && p.ratings === undefined); }
+
+  /** Genre, runtime or seasons, the service it's on among the TV's apps, and its ratings. */
   function details(p, done) {
-    tmdb('/' + p.kind + '/' + p.id + '?language=' + lang() + '&append_to_response=watch/providers,images&include_image_language=null,'
+    tmdb('/' + p.kind + '/' + p.id + '?language=' + lang() + '&append_to_response=watch/providers,images,external_ids&include_image_language=null,'
         + I18N.base + ',en', function (err, o) {
       if (err) { done(err); return; }
       var best = bestBackdrop(o.images);
@@ -496,9 +541,12 @@ var Data = (function () {
       }
       if (p.service && p.app) parts.push(p.service);
       p.meta = parts.join(' · ');
+      p.imdb = (o.external_ids && o.external_ids.imdb_id) || o.imdb_id || '';
       title(p, o, function () {
-        p.detailed = true;
-        done(null);
+        rate(p, function () {
+          p.detailed = true;
+          done(null);
+        });
       });
     });
   }
@@ -566,7 +614,7 @@ var Data = (function () {
       each(['movie', 'tv'], function (kind, next) {
         tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {
           var candidates = [];
-          for (var j = 0; !e && j < r.results.length && j < 16; j++) addPick(candidates, r.results[j], kind);
+          for (var j = 0; !e && j < r.results.length && j < 20; j++) addPick(candidates, r.results[j], kind);
           // Trending is only kept when it's on one of the TV's apps: the details say where.
           each(candidates, function (p, n) {
             details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
@@ -578,8 +626,9 @@ var Data = (function () {
           tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
             for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
             var list = [], seen = {};
-            alternate(list, seen, hot.movie, hot.tv, 24);
-            alternate(list, seen, fresh.movie, fresh.tv, 24);
+            // Up to 10 picks a tab (Prefs.cards), and the Movies and Shows tabs each draw on half of the list.
+            alternate(list, seen, hot.movie, hot.tv, 48);
+            alternate(list, seen, fresh.movie, fresh.tv, 48);
             if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
             picks = list;
             done(null);
@@ -596,7 +645,7 @@ var Data = (function () {
     if (st === stamp && failedAt && t - failedAt < 10 * 60000 && t >= failedAt) return;
     var stale = st !== stamp || p !== period || t - listAt > 6 * 3600000 || t < listAt || !picks.length || listLang !== I18N.lang;
     var wanted = all(), missing = false;
-    for (var i = 0; i < wanted.length; i++) missing = missing || !wanted[i].detailed;
+    for (var i = 0; i < wanted.length; i++) missing = missing || unfinished(wanted[i]);
     if (!stale && !missing) return;
     fetchingRecs = true;
     stamp = st;
@@ -607,7 +656,7 @@ var Data = (function () {
       changed();
     }
     function detailWanted() {
-      var todo = all().filter(function (x) { return !x.detailed; });
+      var todo = all().filter(unfinished);
       each(todo, function (x, next) { details(x, function () { next(); }); }, function () { finish(null); });
     }
     if (stale) {
@@ -668,6 +717,16 @@ var Data = (function () {
     checkKey: checkKey,
     /** A key typed (or removed) on the TV: the picks come again with it, or go. */
     keyChanged: function () { KEY = Prefs.tmdbKey(); recsError = ''; failedAt = 0; refreshRecs(); changed(); },
+    checkOmdbKey: checkOmdbKey,
+    /** An OMDb key typed (or removed) on the TV: the ratings come again with it, or go. */
+    omdbKeyChanged: function () {
+      ratings = {};
+      store('ratings', ratings);
+      for (var i = 0; i < picks.length; i++) delete picks[i].ratings;
+      saveRecs();
+      refreshRecs();
+      changed();
+    },
     recsError: function () { return recsError; },
     picks: now,
     showcase: all,

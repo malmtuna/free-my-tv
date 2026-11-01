@@ -292,6 +292,23 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   transition: opacity 0.3s;
 }
 .card.wide .meta { opacity: 1; }
+/* IMDb and Rotten Tomatoes on the wide card's photo: a dark pill (no backdrop-filter on older TVs). */
+.card .ratings {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  padding: 8px 18px;
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #FFFFFF;
+  font-size: 25px;
+  font-weight: 600;
+  white-space: pre;
+  opacity: 0;
+  -webkit-transition: opacity 0.3s;
+  transition: opacity 0.3s;
+}
+.card.wide .ratings { opacity: 1; }
 .card.edge .name, .card.edge .meta { visibility: hidden; }
 .night .card .img { background-color: #2C2C2E; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32); }
 .night .card .name { color: #F5F5F7; }

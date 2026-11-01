@@ -285,6 +285,15 @@
 
   var apps = [], shelf = [], others = [], inputs = [];
 
+  // HDMI 2 is the DodgyBox: a tile of its own on the shelf (it opens like the drawer's input), and its name there too.
+  var DODGY = {id: 'source:HDMI:2', title: 'DodgyBox', color: '#4A4A52'};
+
+  function withDodgyBox(list) {
+    if (TV.name === 'webos') return list;   // LG's inputs have other ids
+    for (var i = 0; i < list.length; i++) if (list[i].id === DODGY.id) return list;
+    return list.concat([DODGY]);
+  }
+
   /** shelf_apps in config.properties: the shelf in that order, by id or name (part of it). */
   var WANTED = (CONFIG.shelfApps || []).map(function (s) { return s.toLowerCase(); });
 
@@ -294,6 +303,11 @@
       Prefs.set('shelfConfig', WANTED.join(','));
     }
     var chosen = Prefs.shelf(), out = [];
+    if (chosen && TV.name !== 'webos' && !Prefs.dodgyAdded()) {
+      if (chosen.indexOf(DODGY.id) < 0) chosen = chosen.concat([DODGY.id]);
+      Prefs.set('shelf', chosen);
+      Prefs.set('dodgyAdded', true);
+    }
     if (chosen) {
       for (var i = 0; i < chosen.length; i++) {
         for (var j = 0; j < apps.length; j++) if (apps[j].id === chosen[i]) out.push(apps[j]);
@@ -314,6 +328,7 @@
       }
       if (!out.length) out = apps.slice(0, FEW_APPS);
     }
+    if (!chosen) for (var d = 0; d < apps.length; d++) if (apps[d].id === DODGY.id && out.indexOf(apps[d]) < 0) out.push(apps[d]);
     shelf = out;
     others = apps.filter(function (x) { return shelf.indexOf(x) < 0; });
   }
@@ -426,7 +441,10 @@
     setClass(body, 'no-key', !Data.hasKey());   // as on Android: no title or tabs that could never show anything
     if (!Data.hasKey() && st.zone === Z.TOP && st.top < 3) st.top = 3;
     var same = list.length === cards.length;
-    for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
+    for (var i = 0; same && i < list.length; i++) {
+      same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta
+        && list[i].ratings === cards[i].shownRatings;
+    }
     if (same && holder.children.length === list.length) return;
     cards = list;
     holder.innerHTML = '';
@@ -437,6 +455,9 @@
       var poster = el('div', 'layer', img);
       poster.style.backgroundImage = 'url(' + (p.poster ? Data.image(p.poster, 'w342') : Data.image(p.backdrop, 'w780')) + ')';
       el('div', 'layer back', img);
+      // IMDb and Rotten Tomatoes, on the photo's corner: shown only on the wide card, as the meta line.
+      if (p.ratings) el('div', 'ratings', img, p.ratings);
+      p.shownRatings = p.ratings;
       el('div', 'name', card, p.title);
       if (p.meta) el('div', 'meta', card, p.meta);
       hover(card, Z.CARDS, c);
@@ -760,7 +781,7 @@
       {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : tr('Photos'),
         step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
       {label: tr('Picks per tab'), value: String(Prefs.cards()),
-        step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 4) % 4); renderCards(); }},
+        step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 8) % 8); renderCards(); Data.refresh(); }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
@@ -783,7 +804,9 @@
       })(i);
     }
     rows.push({label: tr('TMDB key'), value: Prefs.tmdbKey().length >= 4 ? '•••• ' + Prefs.tmdbKey().slice(-4) : tr('Not set'), opens: true, tmdb: true,
-      step: function (d) { if (d >= 0) openKey(); }});
+      step: function (d) { if (d >= 0) openKey('tmdb'); }});
+    rows.push({label: tr('OMDb key'), value: Prefs.omdbKey().length >= 4 ? '•••• ' + Prefs.omdbKey().slice(-4) : tr('Not set'), opens: true, omdb: true,
+      step: function (d) { if (d >= 0) openKey('omdb'); }});
     var sv = Data.services();
     if (sv.length) {
       var someOff = false;   // only the services this TV has count
@@ -1023,11 +1046,23 @@
 
   // MARK: - TMDB key: typed on the TV, so builds without one (the releases) get the picks too; TMDB checks it first
 
-  var keyStatus = '', keyWarn = false, keyTimer = 0, keySeq = 0, keyAsking = false;
+  // The same sheet takes the OMDb key (keyKind 'omdb'), which brings IMDb's and Rotten Tomatoes' ratings to the picks.
+  var keyStatus = '', keyWarn = false, keyTimer = 0, keySeq = 0, keyAsking = false, keyKind = 'tmdb';
 
-  function keyRows() { return keyAsking ? 2 : Prefs.tmdbKeyOnTV() ? 3 : 2; }
+  function omdb() { return keyKind === 'omdb'; }
+
+  function keyOnTV() { return omdb() ? !!Prefs.omdbKey() : Prefs.tmdbKeyOnTV(); }
+
+  function keyRows() { return keyAsking ? 2 : keyOnTV() ? 3 : 2; }
+
+  function checking() { return omdb() ? tr('Checking the key with OMDb…') : tr('Checking the key with TMDB…'); }
 
   function keySteps() {
+    if (omdb()) {
+      return tr('The key brings IMDb and Rotten Tomatoes ratings to the picks.') + '\n'
+        + tr('Free, and it takes two minutes:') + '\n1. ' + tr('Open omdbapi.com/apikey.aspx and pick the free plan.')
+        + '\n2. ' + tr('Confirm the email OMDb sends, then type the key it shows.');
+    }
     return tr("The key brings the picks: what's trending on your streaming apps, with their photos on the screensaver.") + '\n'
       + tr('Free, and it takes two minutes:') + '\n1. ' + tr('Create an account at themoviedb.org.')
       + '\n2. ' + tr('Open Settings → API and request a developer key.');
@@ -1036,7 +1071,8 @@
   function renderKey() {
     var box = $('keypick').firstChild, old = fieldOf('keypick'), typed = old ? old.value : '', inField = typingIn('keypick');
     box.innerHTML = '';
-    el('div', 'title', box, keyAsking ? tr('Remove the TMDB key?') : tr('TMDB key'));
+    var name = omdb() ? tr('OMDb key') : tr('TMDB key');
+    el('div', 'title', box, keyAsking ? (omdb() ? tr('Remove the OMDb key?') : tr('Remove the TMDB key?')) : name);
     var list = el('div', 'list', box), holder = el('div', 'rows', list);
     list.style.height = keyRows() * 78 + 'px';
     if (keyAsking) {
@@ -1045,21 +1081,22 @@
       updateFocus();
       return;
     }
-    var keyField = textField(holder, Z.KEY, typed, tr('API Read Access Token or API Key'), tr('TMDB key'));
+    var keyField = textField(holder, Z.KEY, typed, omdb() ? tr('API key') : tr('API Read Access Token or API Key'), name);
     // A v3 key is lowercase hex: the TV's keyboard mustn't capitalize it (the city's field wants capitals).
     keyField.setAttribute('autocapitalize', 'none');
     keyField.setAttribute('autocorrect', 'off');
     var save = el('div', 'row', holder, tr('Save'));
     sym('chevron_right', el('span', 'value', save));
     hover(save, Z.KEY, 1);
-    if (Prefs.tmdbKeyOnTV()) hover(el('div', 'row', holder, tr('Remove the key')), Z.KEY, 2);
+    if (keyOnTV()) hover(el('div', 'row', holder, tr('Remove the key')), Z.KEY, 2);
     if (keyStatus) setClass(el('div', 'hint', box, keyStatus), 'warn', keyWarn);
     el('div', 'hint steps', box, keySteps());
     if (inField) openField('keypick');
     updateFocus();
   }
 
-  function openKey() {
+  function openKey(kind) {
+    keyKind = kind;
     setClass($('settings'), 'open', false);
     st.zone = Z.KEY;
     st.key = 0;
@@ -1075,7 +1112,7 @@
     keyStatus = text;
     keyWarn = !!warn;
     clearTimeout(keyTimer);
-    if (text && text !== tr('Checking the key with TMDB…')) keyTimer = setTimeout(function () {
+    if (text && text !== checking()) keyTimer = setTimeout(function () {
       keyStatus = '';
       var line = st.zone === Z.KEY && $('keypick').querySelector('.hint:not(.steps)');
       if (line) line.parentNode.removeChild(line);
@@ -1085,35 +1122,44 @@
 
   function cleanKey(typed) {
     var key = typed.replace(/\s+/g, '');
+    if (omdb()) return /^[A-Za-z0-9]{6,64}$/.test(key) ? key : '';   // OMDb's keys are 8 hex characters
     return /^[A-Za-z0-9._-]{16,1024}$/.test(key) ? key : '';
   }
 
   function saveKey() {
-    var f = fieldOf('keypick'), typed = f ? f.value : '', key = cleanKey(typed);
+    var f = fieldOf('keypick'), typed = f ? f.value : '', key = cleanKey(typed), kind = keyKind;
     closeField('keypick');
     if (!typed.replace(/\s+/g, '')) { st.key = 0; openField('keypick'); updateFocus(); return; }
-    if (keyStatus === tr('Checking the key with TMDB…')) return;
-    if (!key) { setKeyStatus(tr("That doesn't look like a TMDB key."), true); return; }
-    setKeyStatus(tr('Checking the key with TMDB…'));
+    if (keyStatus === checking()) return;
+    if (!key) { setKeyStatus(omdb() ? tr("That doesn't look like an OMDb key.") : tr("That doesn't look like a TMDB key."), true); return; }
+    setKeyStatus(checking());
     var mine = ++keySeq;   // an answer for a sheet already closed is dropped
-    Data.checkKey(key, function (err) {
+    (kind === 'omdb' ? Data.checkOmdbKey : Data.checkKey)(key, function (err) {
       if (mine !== keySeq || st.zone !== Z.KEY) return;
+      if (err && kind === 'omdb') { setKeyStatus(err.rejected ? tr('OMDb refused this key.') : trf("Couldn't reach OMDb: {error}", {error: err.message}), true); return; }
       if (err) { setKeyStatus(err.rejected ? tr('TMDB refused this key.') : trf("Couldn't reach TMDB: {error}", {error: err.message}), true); return; }
-      Prefs.set('tmdbKey', key);
       if (fieldOf('keypick')) fieldOf('keypick').value = '';
+      if (kind === 'omdb') {
+        Prefs.set('omdbKey', key);
+        Data.omdbKeyChanged();
+        setKeyStatus(tr('Saved. The ratings arrive in a moment.'));
+        return;
+      }
+      Prefs.set('tmdbKey', key);
       Data.keyChanged();
       setKeyStatus(tr('Saved. The picks arrive in a moment.'));
     });
   }
 
-  /** Back to config.properties' key (none in the releases): the picks go. */
+  /** TMDB: back to config.properties' key (none in the releases), and the picks go. OMDb: the ratings go. */
   function removeKey() {
-    Prefs.set('tmdbKey', undefined);   // left out of the saved settings
+    var kind = keyKind;
+    Prefs.set(kind === 'omdb' ? 'omdbKey' : 'tmdbKey', undefined);   // left out of the saved settings
     closeKey();
-    Data.keyChanged();
+    if (kind === 'omdb') Data.omdbKeyChanged(); else Data.keyChanged();
   }
 
-  /** Back on the TMDB key row of Home Settings. */
+  /** Back on the key's row of Home Settings. */
   function closeKey() {
     closeField('keypick');
     setClass($('keypick'), 'open', false);
@@ -1124,7 +1170,7 @@
     var f = fieldOf('keypick');
     if (f) f.value = '';
     openSettings();
-    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].tmdb) st.row = i;
+    for (var i = 0; i < rowsNow.length; i++) if (omdb() ? rowsNow[i].omdb : rowsNow[i].tmdb) st.row = i;
     updateFocus();
   }
 
@@ -1236,6 +1282,7 @@
       ids.splice(to, 0, app.id);
     }
     Prefs.set('shelf', ids);
+    Prefs.set('dodgyAdded', true);   // the shelf is now the person's own, DodgyBox on it or not
     pickShelf();
     renderShelf();
     var again = editList();
@@ -1647,9 +1694,11 @@
     TV.apps(function (list) {
       apps = list.filter(function (a) { return !hidden(a); });
       Data.setApps(apps);
+      apps = withDodgyBox(apps);   // after setApps: the picks' services never match an input
       pickShelf();
       TV.inputs(function (list2) {
         inputs = list2;
+        for (var i = 0; i < inputs.length; i++) if (inputs[i].id === DODGY.id) inputs[i].label = DODGY.title;
         if (done) done();
       });
     });
