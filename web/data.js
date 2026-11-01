@@ -417,7 +417,7 @@ var Data = (function () {
   }
 
   function sourceStamp() {
-    var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (Prefs.hideAnimation() ? ':no-animation' : '');
+    var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (Prefs.hideAnimation() ? ':no-animation' : '') + ':min' + Prefs.minRating();
     for (var i = 0; i < SERVICES.length; i++) s += usable(SERVICES[i][1]) ? '1' : '0';
     return s;
   }
@@ -642,9 +642,11 @@ var Data = (function () {
     })();
   }
 
-  /** TMDB's first two pages of a list (40 titles: enough for 30 picks a tab), one after the other; a failed page adds none. */
-  function pages(path, add, done) {
-    each([1, 2], function (page, next) {
+  /** TMDB's first `count` pages of a list (20 titles each), one after the other; a failed page adds none. */
+  function pages(path, count, add, done) {
+    var numbers = [];
+    for (var n = 1; n <= count; n++) numbers.push(n);
+    each(numbers, function (page, next) {
       tmdb(path + '&page=' + page, function (e, r) {
         if (!e && r && r.results) add(r.results);
         next();
@@ -667,7 +669,7 @@ var Data = (function () {
       var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
       each(['movie', 'tv'], function (kind, next) {
         var candidates = [];
-        pages('/trending/' + kind + '/week?language=' + lang(), function (results) {
+        pages('/trending/' + kind + '/week?language=' + lang(), 2, function (results) {
           for (var j = 0; j < results.length; j++) addPick(candidates, results[j], kind);
         }, function () {
           // Trending is only kept when it's on one of the TV's apps: the details say where.
@@ -676,12 +678,25 @@ var Data = (function () {
           }, next);
         });
       }, function () {
-        pages('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (results) {
+        // With a lowest rating (Prefs.minRating), the most popular titles on the TV's apps rated at least that on TMDB,
+        // from any year, so the tabs fill even at 8 or 9; half a point under it, since IMDb often rates a little higher,
+        // and IMDb's own score decides once it's known (goodEnough). Without one, this year's releases.
+        var min = Prefs.minRating(), rated = '&vote_average.gte=' + Math.max(0, min - 0.5) + '&vote_count.gte=150';
+        var movies = min ? '/discover/movie?include_video=false' + rated
+          : '/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0);
+        var shows = min ? '/discover/tv?include_null_first_air_dates=false' + rated
+          : '/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0);
+        // 2 pages each (40 titles: enough for 30 picks a tab); 3 with a rating, some of which IMDb's score then leaves out.
+        var deep = min ? 3 : 2;
+        pages(movies + common, deep, function (results) {
           for (var j = 0; j < results.length; j++) addPick(fresh.movie, results[j], 'movie');
         }, function () {
-          pages('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (results) {
+          pages(shows + common, deep, function (results) {
             for (var k = 0; k < results.length; k++) addPick(fresh.tv, results[k], 'tv');
           }, function () {
+            // Trending titles under the rating would only be dropped on screen: they leave room for rated ones.
+            hot.movie = hot.movie.filter(goodEnough);
+            hot.tv = hot.tv.filter(goodEnough);
             var list = [], seen = {};
             // Up to 30 picks a tab (Prefs.cards), and the Movies and Shows tabs each draw on half of the list.
             alternate(list, seen, hot.movie, hot.tv, 120);
