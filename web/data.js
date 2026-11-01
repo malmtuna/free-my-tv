@@ -527,7 +527,9 @@ var Data = (function () {
   function mdblistScores(p, key, done) {
     var url = MDBLIST + '/tmdb/' + (p.kind === 'tv' ? 'show' : 'movie') + '/' + p.id + '?apikey=' + encodeURIComponent(key);
     get(url, {}, function (err, o) {
-      if (err || !o || !o.ratings) { done(null); return; }
+      // Not found: MDBList has nothing on it (yet). Anything else (a timeout, the day's limit): it didn't answer.
+      if (err) { done(null, err.message === 'HTTP 404' ? 'none' : 'failed'); return; }
+      if (!o || !o.ratings) { done(null, 'none'); return; }
       var out = {};
       for (var i = 0; i < o.ratings.length; i++) {
         var r = o.ratings[i], v = r && r.value;
@@ -539,34 +541,51 @@ var Data = (function () {
     });
   }
 
-  /** "IMDb 7.8 · RT 92%" for a pick, when there's an MDBList key; '' when MDBList has none (or didn't answer). */
+  var UNRATED_FOR = 12 * 3600000;   // MDBList had nothing on a title: new ones get their scores within days
+  var RETRY_AFTER = 30 * 60000;     // MDBList didn't answer: ask again after this
+
+  /** A saved rating still good: scores for 3 days, "none yet" for 12 hours. Empty ones saved before that were failures too. */
+  function fresh(known, t) {
+    if (!known || t < known.at) return false;
+    if (!known.text) return !!known.none && t - known.at < UNRATED_FOR;
+    return t - known.at < RATED_FOR;
+  }
+
+  /** A title whose ratings are still to come (not asked, or the answer was lost), unless MDBList just failed for it. */
+  function needsRating(p) {
+    if (!Prefs.mdblistKey() || (p.ratingFailedAt && Date.now() - p.ratingFailedAt < RETRY_AFTER)) return false;
+    return p.ratings === undefined || (p.ratings === '' && !fresh(ratings[keyOf(p)], Date.now()));
+  }
+
+  /** "IMDb 7.8 · RT 92%" for a pick, when there's an MDBList key; '' when MDBList has none. */
   function rate(p, done) {
     var key = Prefs.mdblistKey(), t = Date.now(), id = keyOf(p);
     if (!key) { done(); return; }
     var known = ratings[id];
-    if (known && t - known.at < RATED_FOR && t >= known.at) {
+    if (fresh(known, t)) {
       var was = /IMDb (\d+(\.\d+)?)/.exec(known.text || '');   // saved before the filter: only the text has the score
       p.ratings = known.text;
       p.imdbScore = known.imdb || (was && parseFloat(was[1])) || 0;
       done();
       return;
     }
-    mdblistScores(p, key, function (s) {
-      // Nothing found: nothing this time, and no asking again until the list is made again (never in a loop).
+    mdblistScores(p, key, function (s, why) {
+      // No answer: nothing saved, and asked again after RETRY_AFTER (never in a loop). None yet: saved for 12 hours.
+      if (why === 'failed') { p.ratingFailedAt = t; delete p.ratings; done(); return; }
       var parts = [];
       if (s && s.imdb) parts.push('IMDb ' + s.imdb);
       if (s && s.rt) parts.push('RT ' + s.rt);
       p.ratings = parts.join('  ·  ');
       p.imdbScore = (s && parseFloat(s.imdb)) || 0;   // for Prefs.minRating
-      for (var k in ratings) if (ratings.hasOwnProperty(k) && !(t - ratings[k].at < RATED_FOR)) delete ratings[k];
-      ratings[id] = {text: p.ratings, imdb: p.imdbScore, at: t};
+      for (var k in ratings) if (ratings.hasOwnProperty(k) && !fresh(ratings[k], t)) delete ratings[k];
+      ratings[id] = {text: p.ratings, imdb: p.imdbScore, at: t, none: !p.ratings};
       store('ratings', ratings);
       done();
     });
   }
 
   /** A pick still to fill in: its details, or its ratings once there's an MDBList key. */
-  function unfinished(p) { return !p.detailed || (!!Prefs.mdblistKey() && p.ratings === undefined); }
+  function unfinished(p) { return !p.detailed || needsRating(p); }
 
   /** Genre, runtime or seasons, the service it's on among the TV's apps, and its ratings. */
   function details(p, done) {
@@ -805,7 +824,7 @@ var Data = (function () {
         (function next() {
           if (i >= titles.length) { rebuild(); done(); return; }
           var p = titles[i++];
-          if (!Prefs.mdblistKey() || p.ratings !== undefined) { next(); return; }
+          if (!needsRating(p)) { next(); return; }
           rate(p, function () { each(p); next(); });
         })();
       }
