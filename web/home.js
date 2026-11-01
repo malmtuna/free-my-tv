@@ -363,7 +363,7 @@
   // MARK: - Focus
 
   var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', TITLE: 'title'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, cardButton: -1, titleButton: 0};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, titleButton: 0};
   var cards = [];
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.TITLE; }
@@ -379,13 +379,8 @@
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
     setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
     layoutCards();
-    if (st.zone !== Z.CARDS) st.cardButton = -1;
     list = $('cards').children;
-    for (i = 0; i < list.length; i++) {
-      setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
-      var acts = list[i].querySelectorAll('.act');
-      for (var a = 0; a < acts.length; a++) setClass(acts[a], 'focus', st.card === i && st.cardButton === a);
-    }
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
     revealShelf();
@@ -437,17 +432,8 @@
 
   var TAB_KIND = [null, 'movie', 'tv'];
 
-  /** The buttons on the wide pick: what each marks the title as, and its label. */
+  /** The title box's marking buttons: what each marks the title as, and its label. */
   var CARD_BUTTONS = [['seen', 'Already seen'], ['disliked', "Don't like"]];
-
-  /** A pick marked Already seen or Don't like: it leaves the row now (Data.onChange draws it again) and never comes back. */
-  function hidePick(index, button) {
-    var p = cards[index];
-    if (!p || p.more) return;
-    st.cardButton = -1;
-    Data.hide(p, CARD_BUTTONS[button][0]);
-    toast(trf("{title} won't be recommended again.", {title: p.title}));
-  }
 
   /** The See more card's place in the row of picks (renderCards): not a title, so it never opens wide or lends a photo. */
   var SEE_MORE = {id: 'see-more', backdrop: '', meta: '', more: true};
@@ -520,13 +506,6 @@
       p.shownRatings = p.ratings;
       el('div', 'name', card, p.title);
       if (p.meta) el('div', 'meta', card, p.meta);
-      // Already seen and Don't like, on the photo's corner: shown on the wide card, reached with ▼ (st.cardButton).
-      var acts = el('div', 'acts', img);
-      for (var b = 0; b < CARD_BUTTONS.length; b++) {
-        (function (button, index) {
-          el('span', 'act', acts, tr(CARD_BUTTONS[button][1])).onclick = function (e) { e.stopPropagation(); hidePick(index, button); };
-        })(b, c);
-      }
       hover(card, Z.CARDS, c);
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
@@ -1676,7 +1655,6 @@
         else openSettings();
         return;
       case Z.CARDS:
-        if (st.cardButton >= 0) { hidePick(st.card, st.cardButton); return; }
         if (cards[st.card] && cards[st.card].more) { openBrowse(); return; }
         if (cards[st.card]) openTitle(cards[st.card]);
         return;
@@ -1742,14 +1720,8 @@
         }
         break;
       case Z.CARDS:
-        // ▼ from a pick goes to its buttons (Already seen, Don't like), ▼ again to the shelf; ▲ from them, back to the pick.
-        if (st.cardButton >= 0) {
-          if (dx) st.cardButton = Math.max(0, Math.min(CARD_BUTTONS.length - 1, st.cardButton + dx));
-          else if (dy < 0) st.cardButton = -1;
-          else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
-        } else if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
+        if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
         else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
-        else if (cards[st.card] && !cards[st.card].more) st.cardButton = 0;
         else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
         break;
       case Z.TOP:

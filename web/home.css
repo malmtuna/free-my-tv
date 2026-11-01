@@ -309,22 +309,6 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   transition: opacity 0.3s;
 }
 .card.wide .ratings { opacity: 1; }
-/* Already seen and Don't like, on the wide card's photo (bottom left): dark pills; the focused one turns white. */
-.card .acts { position: absolute; left: 22px; bottom: 22px; opacity: 0; white-space: nowrap; -webkit-transition: opacity 0.3s; transition: opacity 0.3s; }
-.card.wide .acts { opacity: 1; }
-.act {
-  display: inline-block;
-  margin-right: 12px;
-  padding: 8px 20px;
-  border-radius: 22px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #FFF;
-  font-size: 25px;
-  font-weight: 600;
-  -webkit-transition: -webkit-transform 0.15s, background-color 0.15s, color 0.15s;
-  transition: transform 0.15s, background-color 0.15s, color 0.15s;
-}
-.act.focus { background: #FFF; color: #1D1D1F; -webkit-transform: scale(1.08); transform: scale(1.08); }
 .card.edge .name, .card.edge .meta { visibility: hidden; }
 .night .card .img { background-color: #2C2C2E; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32); }
 .night .card .name { color: #F5F5F7; }
