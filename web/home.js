@@ -362,11 +362,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', TITLE: 'title'};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', TITLE: 'title', TRAILER: 'trailer'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, titleButton: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.TITLE; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.TITLE || st.zone === Z.TRAILER; }
 
   function updateFocus() {
     var i, list;
@@ -947,7 +947,7 @@
     }
     if (info && info.trailer) {
       out.push({label: tr('Play trailer'), symbol: 'live_tv', run: function () {
-        TV.youtube(info.trailer, function (ok) { if (!ok) toast(tr("Couldn't play the trailer.")); });
+        playTrailer(info.trailer);
       }});
     }
     for (var b = 0; b < CARD_BUTTONS.length; b++) {
@@ -956,6 +956,64 @@
       })(CARD_BUTTONS[b][0], CARD_BUTTONS[b][1]);
     }
     return out;
+  }
+
+  // MARK: - Trailer: YouTube's embedded player, full screen in the app, so Back comes straight back to the title box
+
+  var trailerFrame = null, trailerKey = '', trailerPlaying = false, trailerTimer = 0;
+
+  function playTrailer(key) {
+    closeTrailer();
+    trailerKey = key;
+    trailerPlaying = false;
+    st.zone = Z.TRAILER;
+    var holder = $('trailer');
+    trailerFrame = el('iframe', '', holder);
+    trailerFrame.setAttribute('allow', 'autoplay; encrypted-media');
+    trailerFrame.setAttribute('allowfullscreen', '');
+    trailerFrame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(key) + '?autoplay=1&enablejsapi=1&rel=0&playsinline=1&controls=0&iv_load_policy=3';
+    // The player answers its page through postMessage once told it's listened to (YouTube's IFrame API, without its script).
+    trailerFrame.onload = function () { trailerCommand(null); };
+    setClass(holder, 'open', true);
+    // No word from the player at all (a TV that blocks it): the YouTube app instead.
+    trailerTimer = setTimeout(function () { if (!trailerPlaying) inYouTubeApp(); }, 12000);
+  }
+
+  /** A message to the player: a command ('pauseVideo', 'playVideo'), or with none, that this page is listening. */
+  function trailerCommand(func) {
+    if (!trailerFrame || !trailerFrame.contentWindow) return;
+    var msg = func ? {event: 'command', func: func, args: []} : {event: 'listening', id: 1};
+    try { trailerFrame.contentWindow.postMessage(JSON.stringify(msg), '*'); } catch (e) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    if (!trailerFrame || e.source !== trailerFrame.contentWindow) return;
+    var data;
+    try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch (x) { return; }
+    if (!data) return;
+    var state = data.event === 'onStateChange' ? data.info : data.info && data.info.playerState;
+    if (data.event === 'onError') { inYouTubeApp(); return; }   // embedding refused (101, 150, 152, 153) or a bad video
+    if (state === 1) { trailerPlaying = true; clearTimeout(trailerTimer); }
+    else if (state === 2) trailerPlaying = false;
+    else if (state === 0) closeTrailer();                          // it ended: back to the box
+  });
+
+  /** YouTube wouldn't play it here: its app, as before (Back there stays in YouTube). */
+  function inYouTubeApp() {
+    var key = trailerKey;
+    closeTrailer();
+    if (key) TV.youtube(key, function (ok) { if (!ok) toast(tr("Couldn't play the trailer.")); });
+  }
+
+  /** Stops the trailer and goes back to the title box. */
+  function closeTrailer() {
+    clearTimeout(trailerTimer);
+    var holder = $('trailer');
+    setClass(holder, 'open', false);
+    holder.innerHTML = '';   // removing the player stops it
+    trailerFrame = null;
+    trailerPlaying = false;
+    if (st.zone === Z.TRAILER) { st.zone = Z.TITLE; updateFocus(); }
   }
 
   /** Already seen or Don't like from the box: it closes, and the title leaves the picks and See more. */
@@ -1003,6 +1061,7 @@
     setClass($('apps'), 'open', false);
     setClass($('browse'), 'open', false);
     setClass($('titlebox'), 'open', false);
+    closeTrailer();
     browsing = null;
     titlePick = null;
     setClass($('settings'), 'open', false);
@@ -1673,6 +1732,9 @@
       case Z.TITLE:
         if (titleButtons[st.titleButton]) titleButtons[st.titleButton].run();
         return;
+      case Z.TRAILER:
+        trailerCommand(trailerPlaying ? 'pauseVideo' : 'playVideo');   // OK pauses and plays
+        return;
 
       case Z.SETTINGS:
         if (rowsNow[st.row]) { rowsNow[st.row].step(1); if (st.zone === Z.SETTINGS) renderSettings(); }
@@ -1784,6 +1846,7 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.TRAILER) { closeTrailer(); return; }
     if (st.zone === Z.TITLE) { closeTitle(); return; }
     if (st.zone === Z.BROWSE) { closeBrowse(); return; }
     if (sheetOpen()) { closeSheets(); return; }
