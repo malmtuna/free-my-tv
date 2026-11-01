@@ -362,11 +362,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', MARK: 'mark'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, mark: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, cardButton: -1};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.MARK; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE; }
 
   function updateFocus() {
     var i, list;
@@ -379,8 +379,13 @@
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
     setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
     layoutCards();
+    if (st.zone !== Z.CARDS) st.cardButton = -1;
     list = $('cards').children;
-    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
+    for (i = 0; i < list.length; i++) {
+      setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
+      var acts = list[i].querySelectorAll('.act');
+      for (var a = 0; a < acts.length; a++) setClass(acts[a], 'focus', st.card === i && st.cardButton === a);
+    }
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
     revealShelf();
@@ -398,7 +403,6 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
-    focusRows($('markpick'), st.mark, st.zone === Z.MARK);
     setClass(body, 'drawer-open', st.zone === Z.DRAWER);
     followSoon();
   }
@@ -430,6 +434,18 @@
   // MARK: - Top: title, tabs, buttons, quotes
 
   var TAB_KIND = [null, 'movie', 'tv'];
+
+  /** The buttons on the wide pick: what each marks the title as, and its label. */
+  var CARD_BUTTONS = [['seen', 'Already seen'], ['disliked', "Don't like"]];
+
+  /** A pick marked Already seen or Don't like: it leaves the row now (Data.onChange draws it again) and never comes back. */
+  function hidePick(index, button) {
+    var p = cards[index];
+    if (!p || p.more) return;
+    st.cardButton = -1;
+    Data.hide(p, CARD_BUTTONS[button][0]);
+    toast(trf("{title} won't be recommended again.", {title: p.title}));
+  }
 
   /** The See more card's place in the row of picks (renderCards): not a title, so it never opens wide or lends a photo. */
   var SEE_MORE = {id: 'see-more', backdrop: '', meta: '', more: true};
@@ -502,6 +518,13 @@
       p.shownRatings = p.ratings;
       el('div', 'name', card, p.title);
       if (p.meta) el('div', 'meta', card, p.meta);
+      // Already seen and Don't like, on the photo's corner: shown on the wide card, reached with ▼ (st.cardButton).
+      var acts = el('div', 'acts', img);
+      for (var b = 0; b < CARD_BUTTONS.length; b++) {
+        (function (button, index) {
+          el('span', 'act', acts, tr(CARD_BUTTONS[button][1])).onclick = function (e) { e.stopPropagation(); hidePick(index, button); };
+        })(b, c);
+      }
       hover(card, Z.CARDS, c);
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
@@ -793,7 +816,7 @@
     updateFocus();
   }
 
-  // MARK: - See more: the tab's titles past the picks, 18 posters a page; ▼ on the last row turns to the next page
+  // MARK: - See more: the tab's titles past the picks, 12 posters a page; ▼ on the last row turns to the next page
 
   var browsing = null, browsePage = 0, browsePages = 1, browseTitles = [], browseSeq = 0, BROWSE_COLS = 6;
 
@@ -857,10 +880,10 @@
     if (status) el('div', 'status', grid, status);
     for (var i = 0; i < browseTitles.length; i++) {
       var p = browseTitles[i], cell = el('div', 'bcell', grid);
-      cell.style.left = (255 + (i % BROWSE_COLS) * 250) + 'px';
-      cell.style.top = (180 + Math.floor(i / BROWSE_COLS) * 285) + 'px';
+      cell.style.left = (90 + (i % BROWSE_COLS) * 300) + 'px';   // 6 of 240, 60 apart, centred
+      cell.style.top = (200 + Math.floor(i / BROWSE_COLS) * 420) + 'px';
       var poster = el('div', 'poster', cell);
-      poster.style.backgroundImage = 'url(' + Data.image(p.poster || p.backdrop, p.poster ? 'w185' : 'w300') + ')';
+      poster.style.backgroundImage = 'url(' + Data.image(p.poster || p.backdrop, p.poster ? 'w342' : 'w300') + ')';
       cell.setAttribute('data-id', p.kind + ':' + p.id);
       rateBrowsed(p, cell);
       el('div', 'label', cell, p.title);
@@ -907,49 +930,10 @@
     });
   }
 
-  // MARK: - Already seen or Don't like: play/pause on a pick or a See more title, and it's never recommended again
-
-  var MARKS = [['seen', 'Already seen'], ['disliked', "Don't like"], ['', 'Cancel']], marking = null, markFrom = null;
-
-  /** The menu for the focused title; false when nothing there can be marked (play/pause then does nothing). */
-  function openMark() {
-    var p = st.zone === Z.CARDS ? cards[st.card] : st.zone === Z.BROWSE ? browseTitles[st.browse] : null;
-    if (!p || p.more) return false;
-    marking = p;
-    markFrom = st.zone;
-    st.zone = Z.MARK;
-    st.mark = 0;
-    var box = $('markpick').firstChild;
-    box.innerHTML = '';
-    el('div', 'title', box, p.title);
-    var list = el('div', 'list', box), holder = el('div', 'rows', list);
-    list.style.height = MARKS.length * 78 + 'px';
-    for (var i = 0; i < MARKS.length; i++) hover(el('div', 'row', holder, tr(MARKS[i][1])), Z.MARK, i);
-    el('div', 'hint', box, tr("Marked titles aren't recommended again."));
-    setClass($('markpick'), 'open', true);
-    updateFocus();
-    return true;
-  }
-
-  /** OK (pick): the title is marked and leaves the picks or the page; Back or Cancel: nothing changes. */
-  function closeMark(pick) {
-    var p = marking, why = pick ? MARKS[st.mark][0] : '';
-    setClass($('markpick'), 'open', false);
-    marking = null;
-    st.zone = markFrom;
-    if (p && why) {
-      Data.hide(p, why);   // the picks are drawn again without it (Data.onChange)
-      if (st.zone === Z.BROWSE && browsing) showBrowsePage(browsePage, st.browse);
-    }
-    updateFocus();
-  }
-
   function closeSheets() {
     setClass($('apps'), 'open', false);
     setClass($('browse'), 'open', false);
-    setClass($('markpick'), 'open', false);
     browsing = null;
-    marking = null;
     setClass($('settings'), 'open', false);
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
@@ -1600,6 +1584,7 @@
         else openSettings();
         return;
       case Z.CARDS:
+        if (st.cardButton >= 0) { hidePick(st.card, st.cardButton); return; }
         if (cards[st.card] && cards[st.card].more) { openBrowse(); return; }
         var target = pickTarget(cards[st.card]);
         if (target) launcher(target.app.id, target.app.title, target.params)();
@@ -1616,9 +1601,7 @@
       case Z.BROWSE:
         openBrowsed();
         return;
-      case Z.MARK:
-        closeMark(true);
-        return;
+
       case Z.SETTINGS:
         if (rowsNow[st.row]) { rowsNow[st.row].step(1); if (st.zone === Z.SETTINGS) renderSettings(); }
         return;
@@ -1665,8 +1648,14 @@
         }
         break;
       case Z.CARDS:
-        if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
+        // ▼ from a pick goes to its buttons (Already seen, Don't like), ▼ again to the shelf; ▲ from them, back to the pick.
+        if (st.cardButton >= 0) {
+          if (dx) st.cardButton = Math.max(0, Math.min(CARD_BUTTONS.length - 1, st.cardButton + dx));
+          else if (dy < 0) st.cardButton = -1;
+          else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
+        } else if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
         else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
+        else if (cards[st.card] && !cards[st.card].more) st.cardButton = 0;
         else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
         break;
       case Z.TOP:
@@ -1685,9 +1674,7 @@
       case Z.BROWSE:
         moveBrowse(dx, dy);
         return;
-      case Z.MARK:
-        if (dy) st.mark = Math.max(0, Math.min(MARKS.length - 1, st.mark + dy));
-        break;
+
       case Z.APPS:
         var g = st.grid + dx + dy * 5;
         if (g >= 0 && g < others.length && (dx === 0 || Math.floor(g / 5) === Math.floor(st.grid / 5))) st.grid = g;
@@ -1728,7 +1715,6 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
-    if (st.zone === Z.MARK) { closeMark(false); return; }
     if (st.zone === Z.BROWSE) { closeBrowse(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
@@ -1739,7 +1725,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.BROWSE || zone === Z.MARK))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.BROWSE))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < 3 && !Data.hasKey()) return;   // the tabs are hidden without the picks
@@ -1751,7 +1737,6 @@
       else if (zone === Z.DRAWER) st.drawer = index;
       else if (zone === Z.APPS) st.grid = index;
       else if (zone === Z.BROWSE) st.browse = index;
-      else if (zone === Z.MARK) st.mark = index;
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;
       else if (zone === Z.LANG) st.lang = index;
@@ -1929,7 +1914,6 @@
     else if (k === TV.keys.down) move(0, 1);
     else if (k === TV.keys.ok) activate();
     else if (k === TV.keys.back || k === 27 || k === 8) back();
-    else if (TV.keys.play.indexOf(k) >= 0) { if (!openMark()) return; }
     else return;
     e.preventDefault();
   });

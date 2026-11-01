@@ -747,7 +747,7 @@ var Data = (function () {
 
   // MARK: - See more: the same titles past what the tabs show, a page at a time
 
-  var BROWSE_PAGE = 18;   // 6 across, 3 rows
+  var BROWSE_PAGE = 12;   // 6 across, 2 rows of large posters
 
   /**
    * A See more session for a tab's kind ('movie', 'tv', or null for both, alternating). TMDB's pages come only as the

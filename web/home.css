@@ -309,6 +309,22 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   transition: opacity 0.3s;
 }
 .card.wide .ratings { opacity: 1; }
+/* Already seen and Don't like, on the wide card's photo (bottom left): dark pills; the focused one turns white. */
+.card .acts { position: absolute; left: 22px; bottom: 22px; opacity: 0; white-space: nowrap; -webkit-transition: opacity 0.3s; transition: opacity 0.3s; }
+.card.wide .acts { opacity: 1; }
+.act {
+  display: inline-block;
+  margin-right: 12px;
+  padding: 8px 20px;
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #FFF;
+  font-size: 25px;
+  font-weight: 600;
+  -webkit-transition: -webkit-transform 0.15s, background-color 0.15s, color 0.15s;
+  transition: transform 0.15s, background-color 0.15s, color 0.15s;
+}
+.act.focus { background: #FFF; color: #1D1D1F; -webkit-transform: scale(1.08); transform: scale(1.08); }
 .card.edge .name, .card.edge .meta { visibility: hidden; }
 .night .card .img { background-color: #2C2C2E; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32); }
 .night .card .name { color: #F5F5F7; }
@@ -497,20 +513,22 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .sheet.open { opacity: 1; visibility: visible; pointer-events: auto; -webkit-transform: none; transform: none; -webkit-transition-delay: 0s; transition-delay: 0s; }
 .sheet h2 { position: absolute; left: 0; right: 0; top: 84px; margin: 0; text-align: center; font-size: 40px; font-weight: 600; }
 
-/* See more: the tab's titles past the picks, 18 posters a page, the focused one lifted with a lit edge (as the picks). */
+/* See more: the tab's titles past the picks, 12 large posters a page, the focused one lifted with a lit edge (as the
+   picks), on a solid dark page: the home screen doesn't show through. */
+#browse { background: #121214; }
 #browse .sub { position: absolute; left: 0; right: 0; top: 140px; text-align: center; font-size: 26px; color: rgba(255, 255, 255, 0.65); }
 #browse .status { position: absolute; left: 0; right: 0; top: 500px; text-align: center; font-size: 30px; color: rgba(255, 255, 255, 0.65); }
 #browse .dots { position: absolute; left: 0; right: 0; top: 1040px; text-align: center; font-size: 0; }
 .dot { display: inline-block; width: 10px; height: 10px; margin: 0 5px; border-radius: 5px; background: rgba(255, 255, 255, 0.3); }
 .dot.on { width: 30px; background: #FFF; }
-.bcell { position: absolute; width: 160px; height: 290px; }
+.bcell { position: absolute; width: 240px; height: 410px; }
 .bcell .poster {
   position: absolute;
   left: 0;
   top: 0;
-  width: 160px;
-  height: 240px;
-  border-radius: 14px;
+  width: 240px;
+  height: 360px;
+  border-radius: 18px;
   background-color: #2C2C2E;
   background-size: cover;
   background-position: center;
@@ -518,9 +536,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   -webkit-transition: -webkit-transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
   transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
 }
-.bcell .poster::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 14px; box-shadow: inset 0 0 0 2.5px rgba(255, 255, 255, 0.9); opacity: 0; -webkit-transition: opacity 0.17s; transition: opacity 0.17s; }
-.bcell .rate { position: absolute; right: 8px; bottom: 8px; padding: 3px 10px; border-radius: 14px; background: rgba(0, 0, 0, 0.66); font-size: 18px; font-weight: 600; white-space: nowrap; }
-.bcell .label { position: absolute; left: 0; right: 0; top: 252px; font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bcell .poster::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 18px; box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.9); opacity: 0; -webkit-transition: opacity 0.17s; transition: opacity 0.17s; }
+.bcell .rate { position: absolute; right: 10px; bottom: 10px; padding: 4px 12px; border-radius: 16px; background: rgba(0, 0, 0, 0.66); font-size: 22px; font-weight: 600; white-space: nowrap; }
+.bcell .label { position: absolute; left: 0; right: 0; top: 374px; font-size: 26px; font-weight: 500; color: rgba(255, 255, 255, 0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bcell.focus .poster { -webkit-transform: translateY(-6px) scale(1.08); transform: translateY(-6px) scale(1.08); z-index: 2; }
 .bcell.focus .poster::after { opacity: 1; }
 .bcell.focus .label { color: #FFF; }

@@ -122,7 +122,6 @@
  "Looking for the apps…": "Looking for the apps…",
  "Lowest IMDb rating": "Lowest IMDb rating",
  "MDBList key": "MDBList key",
- "Marked titles aren't recommended again.": "Marked titles aren't recommended again.",
  "Measured at each switch, for both home screens.": "Measured at each switch, for both home screens.",
  "Measuring Free My TV…": "Measuring Free My TV…",
  "Measuring the original home screen…": "Measuring the original home screen…",
@@ -461,6 +460,7 @@
  "{service} key": "{service} key",
  "{service} refused this key.": "{service} refused this key.",
  "{time} left": "{time} left",
+ "{title} won't be recommended again.": "{title} won't be recommended again.",
  "{url}, code {code}": "{url}, code {code}",
  "{version} is out: build it again": "{version} is out: build it again",
  "← → to move · OK to drop · Back to cancel": "← → to move · OK to drop · Back to cancel"
