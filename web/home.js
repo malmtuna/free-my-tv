@@ -805,8 +805,8 @@
     }
     rows.push({label: tr('TMDB key'), value: Prefs.tmdbKey().length >= 4 ? '•••• ' + Prefs.tmdbKey().slice(-4) : tr('Not set'), opens: true, tmdb: true,
       step: function (d) { if (d >= 0) openKey('tmdb'); }});
-    rows.push({label: tr('OMDb key'), value: Prefs.omdbKey().length >= 4 ? '•••• ' + Prefs.omdbKey().slice(-4) : tr('Not set'), opens: true, omdb: true,
-      step: function (d) { if (d >= 0) openKey('omdb'); }});
+    rows.push({label: tr('MDBList key'), value: Prefs.mdblistKey().length >= 4 ? '•••• ' + Prefs.mdblistKey().slice(-4) : tr('Not set'), opens: true, keyKind: 'mdblist',
+      step: function (d) { if (d >= 0) openKey('mdblist'); }});
     var sv = Data.services();
     if (sv.length) {
       var someOff = false;   // only the services this TV has count
@@ -1046,22 +1046,25 @@
 
   // MARK: - TMDB key: typed on the TV, so builds without one (the releases) get the picks too; TMDB checks it first
 
-  // The same sheet takes the OMDb key (keyKind 'omdb'), which brings IMDb's and Rotten Tomatoes' ratings to the picks.
+  // The same sheet takes the MDBList key (keyKind 'mdblist'), which brings IMDb and Rotten Tomatoes to the picks.
   var keyStatus = '', keyWarn = false, keyTimer = 0, keySeq = 0, keyAsking = false, keyKind = 'tmdb';
 
-  function omdb() { return keyKind === 'omdb'; }
+  function mdblist() { return keyKind === 'mdblist'; }
 
-  function keyOnTV() { return omdb() ? !!Prefs.omdbKey() : Prefs.tmdbKeyOnTV(); }
+  /** The service the sheet's key is for, as people know it. */
+  function service() { return mdblist() ? 'MDBList' : 'TMDB'; }
+
+  function keyOnTV() { return mdblist() ? !!Prefs.mdblistKey() : Prefs.tmdbKeyOnTV(); }
 
   function keyRows() { return keyAsking ? 2 : keyOnTV() ? 3 : 2; }
 
-  function checking() { return omdb() ? tr('Checking the key with OMDb…') : tr('Checking the key with TMDB…'); }
+  function checking() { return trf('Checking the key with {service}…', {service: service()}); }
 
   function keySteps() {
-    if (omdb()) {
-      return tr('The key brings IMDb and Rotten Tomatoes ratings to the picks.') + '\n'
-        + tr('Free, and it takes two minutes:') + '\n1. ' + tr('Open omdbapi.com/apikey.aspx and pick the free plan.')
-        + '\n2. ' + tr('Confirm the email OMDb sends, then type the key it shows.');
+    if (mdblist()) {
+      return tr('The key brings Rotten Tomatoes and IMDb ratings to the picks.') + '\n'
+        + tr('Free, and it takes two minutes:') + '\n1. ' + tr('Sign in at mdblist.com.')
+        + '\n2. ' + tr('Open Preferences, then copy the API key into the field above.');
     }
     return tr("The key brings the picks: what's trending on your streaming apps, with their photos on the screensaver.") + '\n'
       + tr('Free, and it takes two minutes:') + '\n1. ' + tr('Create an account at themoviedb.org.')
@@ -1071,8 +1074,8 @@
   function renderKey() {
     var box = $('keypick').firstChild, old = fieldOf('keypick'), typed = old ? old.value : '', inField = typingIn('keypick');
     box.innerHTML = '';
-    var name = omdb() ? tr('OMDb key') : tr('TMDB key');
-    el('div', 'title', box, keyAsking ? (omdb() ? tr('Remove the OMDb key?') : tr('Remove the TMDB key?')) : name);
+    var name = trf('{service} key', {service: service()});
+    el('div', 'title', box, keyAsking ? trf('Remove the {service} key?', {service: service()}) : name);
     var list = el('div', 'list', box), holder = el('div', 'rows', list);
     list.style.height = keyRows() * 78 + 'px';
     if (keyAsking) {
@@ -1081,7 +1084,7 @@
       updateFocus();
       return;
     }
-    var keyField = textField(holder, Z.KEY, typed, omdb() ? tr('API key') : tr('API Read Access Token or API Key'), name);
+    var keyField = textField(holder, Z.KEY, typed, keyKind === 'tmdb' ? tr('API Read Access Token or API Key') : tr('API key'), name);
     // A v3 key is lowercase hex: the TV's keyboard mustn't capitalize it (the city's field wants capitals).
     keyField.setAttribute('autocapitalize', 'none');
     keyField.setAttribute('autocorrect', 'off');
@@ -1122,26 +1125,30 @@
 
   function cleanKey(typed) {
     var key = typed.replace(/\s+/g, '');
-    if (omdb()) return /^[A-Za-z0-9]{6,64}$/.test(key) ? key : '';   // OMDb's keys are 8 hex characters
+    if (mdblist()) return /^[A-Za-z0-9_-]{8,128}$/.test(key) ? key : '';
     return /^[A-Za-z0-9._-]{16,1024}$/.test(key) ? key : '';
   }
 
   function saveKey() {
-    var f = fieldOf('keypick'), typed = f ? f.value : '', key = cleanKey(typed), kind = keyKind;
+    var f = fieldOf('keypick'), typed = f ? f.value : '', key = cleanKey(typed), kind = keyKind, name = service();
     closeField('keypick');
     if (!typed.replace(/\s+/g, '')) { st.key = 0; openField('keypick'); updateFocus(); return; }
     if (keyStatus === checking()) return;
-    if (!key) { setKeyStatus(omdb() ? tr("That doesn't look like an OMDb key.") : tr("That doesn't look like a TMDB key."), true); return; }
+    if (!key) { setKeyStatus(trf("That doesn't look like a {service} key.", {service: name}), true); return; }
     setKeyStatus(checking());
     var mine = ++keySeq;   // an answer for a sheet already closed is dropped
-    (kind === 'omdb' ? Data.checkOmdbKey : Data.checkKey)(key, function (err) {
+    var check = kind === 'mdblist' ? Data.checkMdblistKey : Data.checkKey;
+    check(key, function (err) {
       if (mine !== keySeq || st.zone !== Z.KEY) return;
-      if (err && kind === 'omdb') { setKeyStatus(err.rejected ? tr('OMDb refused this key.') : trf("Couldn't reach OMDb: {error}", {error: err.message}), true); return; }
-      if (err) { setKeyStatus(err.rejected ? tr('TMDB refused this key.') : trf("Couldn't reach TMDB: {error}", {error: err.message}), true); return; }
+      if (err) {
+        setKeyStatus(err.rejected ? trf('{service} refused this key.', {service: name})
+          : trf("Couldn't reach {service}: {error}", {service: name, error: err.message}), true);
+        return;
+      }
       if (fieldOf('keypick')) fieldOf('keypick').value = '';
-      if (kind === 'omdb') {
-        Prefs.set('omdbKey', key);
-        Data.omdbKeyChanged();
+      if (kind !== 'tmdb') {
+        Prefs.set(kind + 'Key', key);
+        Data.ratingsKeyChanged();
         setKeyStatus(tr('Saved. The ratings arrive in a moment.'));
         return;
       }
@@ -1151,12 +1158,12 @@
     });
   }
 
-  /** TMDB: back to config.properties' key (none in the releases), and the picks go. OMDb: the ratings go. */
+  /** TMDB: back to config.properties' key (none in the releases), and the picks go. MDBList: the ratings go. */
   function removeKey() {
     var kind = keyKind;
-    Prefs.set(kind === 'omdb' ? 'omdbKey' : 'tmdbKey', undefined);   // left out of the saved settings
+    Prefs.set(kind + 'Key', undefined);   // left out of the saved settings
     closeKey();
-    if (kind === 'omdb') Data.omdbKeyChanged(); else Data.keyChanged();
+    if (kind === 'tmdb') Data.keyChanged(); else Data.ratingsKeyChanged();
   }
 
   /** Back on the key's row of Home Settings. */
@@ -1170,7 +1177,7 @@
     var f = fieldOf('keypick');
     if (f) f.value = '';
     openSettings();
-    for (var i = 0; i < rowsNow.length; i++) if (omdb() ? rowsNow[i].omdb : rowsNow[i].tmdb) st.row = i;
+    for (var i = 0; i < rowsNow.length; i++) if (keyKind === 'tmdb' ? rowsNow[i].tmdb : rowsNow[i].keyKind === keyKind) st.row = i;
     updateFocus();
   }
 

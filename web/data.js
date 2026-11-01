@@ -96,8 +96,8 @@ var Prefs = (function () {
     tmdbKey: function () { return String(pick('tmdbKey', CONFIG.tmdbKey || '')).trim(); },
     /** True when the key in use was typed on the TV (Remove takes it back to config.properties'). */
     tmdbKeyOnTV: function () { return v.tmdbKey !== undefined; },
-    /** The OMDb key typed on the TV (Home Settings → OMDb key), for the IMDb and Rotten Tomatoes ratings ('' for none). */
-    omdbKey: function () { return String(pick('omdbKey', '')).trim(); },
+    /** The MDBList key typed on the TV (Home Settings → MDBList key), for the IMDb and Rotten Tomatoes ratings ('' for none). */
+    mdblistKey: function () { return String(pick('mdblistKey', '')).trim(); },
     setCity: function (name, lat, lon) { v.city = name; v.latitude = lat; v.longitude = lon; save(); this.version++; },
     /** Streaming services (keys like "netflix") whose titles are left out of the picks. */
     serviceOff: function (key) { return pick('servicesOff', []).indexOf(key) >= 0; },
@@ -473,50 +473,64 @@ var Data = (function () {
     return best;
   }
 
-  // MARK: - Ratings (OMDb: IMDb's and Rotten Tomatoes' scores, with a key typed on the TV)
+  // MARK: - Ratings (IMDb's and Rotten Tomatoes' scores, with an MDBList key typed on the TV)
 
-  var OMDB = 'https://www.omdbapi.com/';
+  var MDBLIST = 'https://api.mdblist.com';
   var RATED_FOR = 3 * 86400000;   // scores change slowly, and the free key has 1,000 requests a day
-  var ratings = stored('ratings') || {};   // IMDb id -> {text, at}
+  var ratings = stored('ratings') || {};   // "movie:123" -> {text, at}
 
-  /** Asks OMDb whether a key works before it's saved: done(error), with error.rejected when OMDb said no. */
-  function checkOmdbKey(key, done) {
-    get(OMDB + '?i=tt0111161&apikey=' + encodeURIComponent(key), {}, function (err, o) {
-      if (!err && o && o.Response === 'False') err = new Error(o.Error || 'OMDb said no');
-      if (err && /401|rejected|invalid/i.test(err.message)) err.rejected = true;
+  /** Asks MDBList whether a key works before it's saved: done(error), with error.rejected when MDBList said no. */
+  function checkMdblistKey(key, done) {
+    get(MDBLIST + '/tmdb/movie/278?apikey=' + encodeURIComponent(key), {}, function (err) {
+      if (err && /401|403|rejected/i.test(err.message)) err.rejected = true;
       done(err || null);
     });
   }
 
-  /** "IMDb 7.8 · RT 92%" for a pick, when there's an OMDb key; '' when OMDb has none (or didn't answer). */
-  function rate(p, done) {
-    var key = Prefs.omdbKey(), t = Date.now();
-    if (!key) { done(); return; }
-    if (!p.imdb) { p.ratings = ''; done(); return; }
-    var known = ratings[p.imdb];
-    if (known && t - known.at < RATED_FOR && t >= known.at) { p.ratings = known.text; done(); return; }
-    get(OMDB + '?i=' + encodeURIComponent(p.imdb) + '&apikey=' + encodeURIComponent(key), {}, function (err, o) {
-      // Failed: nothing this time, and no asking again until the list is made again (never in a loop).
-      if (err || !o || o.Response === 'False') { p.ratings = ''; done(); return; }
-      var parts = [];
-      if (o.imdbRating && o.imdbRating !== 'N/A') parts.push('IMDb ' + o.imdbRating);
-      for (var i = 0; o.Ratings && i < o.Ratings.length; i++) {
-        if (o.Ratings[i].Source === 'Rotten Tomatoes') parts.push('RT ' + o.Ratings[i].Value);
+  /**
+   * MDBList's scores for a pick, looked up by its TMDB id: done({imdb: '7.8', rt: '92%'}), with what it has, or null.
+   * Its "tomatoes" is Rotten Tomatoes' critics (the Tomatometer), kept apart from the audience's ("popcorn").
+   */
+  function mdblistScores(p, key, done) {
+    var url = MDBLIST + '/tmdb/' + (p.kind === 'tv' ? 'show' : 'movie') + '/' + p.id + '?apikey=' + encodeURIComponent(key);
+    get(url, {}, function (err, o) {
+      if (err || !o || !o.ratings) { done(null); return; }
+      var out = {};
+      for (var i = 0; i < o.ratings.length; i++) {
+        var r = o.ratings[i], v = r && r.value;
+        if (v === null || v === undefined || v === '' || v === 0) continue;
+        if (r.source === 'imdb') out.imdb = typeof v === 'number' ? v.toFixed(1) : String(v);
+        else if (r.source === 'tomatoes') out.rt = Math.round(Number(v)) + '%';
       }
+      done(out);
+    });
+  }
+
+  /** "IMDb 7.8 · RT 92%" for a pick, when there's an MDBList key; '' when MDBList has none (or didn't answer). */
+  function rate(p, done) {
+    var key = Prefs.mdblistKey(), t = Date.now(), id = keyOf(p);
+    if (!key) { done(); return; }
+    var known = ratings[id];
+    if (known && t - known.at < RATED_FOR && t >= known.at) { p.ratings = known.text; done(); return; }
+    mdblistScores(p, key, function (s) {
+      // Nothing found: nothing this time, and no asking again until the list is made again (never in a loop).
+      var parts = [];
+      if (s && s.imdb) parts.push('IMDb ' + s.imdb);
+      if (s && s.rt) parts.push('RT ' + s.rt);
       p.ratings = parts.join('  ·  ');
-      for (var id in ratings) if (ratings.hasOwnProperty(id) && !(t - ratings[id].at < RATED_FOR)) delete ratings[id];
-      ratings[p.imdb] = {text: p.ratings, at: t};
+      for (var k in ratings) if (ratings.hasOwnProperty(k) && !(t - ratings[k].at < RATED_FOR)) delete ratings[k];
+      ratings[id] = {text: p.ratings, at: t};
       store('ratings', ratings);
       done();
     });
   }
 
-  /** A pick still to fill in: its details, or its ratings once there's an OMDb key. */
-  function unfinished(p) { return !p.detailed || (!!Prefs.omdbKey() && p.ratings === undefined); }
+  /** A pick still to fill in: its details, or its ratings once there's an MDBList key. */
+  function unfinished(p) { return !p.detailed || (!!Prefs.mdblistKey() && p.ratings === undefined); }
 
   /** Genre, runtime or seasons, the service it's on among the TV's apps, and its ratings. */
   function details(p, done) {
-    tmdb('/' + p.kind + '/' + p.id + '?language=' + lang() + '&append_to_response=watch/providers,images,external_ids&include_image_language=null,'
+    tmdb('/' + p.kind + '/' + p.id + '?language=' + lang() + '&append_to_response=watch/providers,images&include_image_language=null,'
         + I18N.base + ',en', function (err, o) {
       if (err) { done(err); return; }
       var best = bestBackdrop(o.images);
@@ -541,7 +555,6 @@ var Data = (function () {
       }
       if (p.service && p.app) parts.push(p.service);
       p.meta = parts.join(' · ');
-      p.imdb = (o.external_ids && o.external_ids.imdb_id) || o.imdb_id || '';
       title(p, o, function () {
         rate(p, function () {
           p.detailed = true;
@@ -717,9 +730,9 @@ var Data = (function () {
     checkKey: checkKey,
     /** A key typed (or removed) on the TV: the picks come again with it, or go. */
     keyChanged: function () { KEY = Prefs.tmdbKey(); recsError = ''; failedAt = 0; refreshRecs(); changed(); },
-    checkOmdbKey: checkOmdbKey,
-    /** An OMDb key typed (or removed) on the TV: the ratings come again with it, or go. */
-    omdbKeyChanged: function () {
+    checkMdblistKey: checkMdblistKey,
+    /** An MDBList key typed (or removed) on the TV: the ratings come again with it, or go. */
+    ratingsKeyChanged: function () {
       ratings = {};
       store('ratings', ratings);
       for (var i = 0; i < picks.length; i++) delete picks[i].ratings;
