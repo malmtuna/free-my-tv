@@ -79,6 +79,16 @@ var Prefs = (function () {
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
+    /** A title ("movie:123") marked Already seen or Don't like: never recommended again. */
+    hidden: function (id) { return pick('seenTitles', []).indexOf(id) >= 0 || pick('dislikedTitles', []).indexOf(id) >= 0; },
+    /** Marks a title: 'seen' or 'disliked' (each list keeps its newest 2,000). */
+    hide: function (id, why) {
+      var name = why === 'seen' ? 'seenTitles' : 'dislikedTitles', list = pick(name, []).filter(function (x) { return x !== id; });
+      list.push(id);
+      this.set(name, list.slice(-2000));
+    },
+    hiddenCount: function () { return pick('seenTitles', []).length + pick('dislikedTitles', []).length; },
+    unhideAll: function () { this.set('seenTitles', []); this.set('dislikedTitles', []); },
     /** The lowest IMDb score a pick may have (0: any). TMDB's score stands in until a pick's IMDb score is known. */
     minRating: function () { return +pick('minRating', 6) || 0; },
     /** Picks per tab: 3 (as it was) up to 30. */
@@ -429,10 +439,11 @@ var Data = (function () {
   }
 
   /**
-   * Rated well enough for the picks (Prefs.minRating): its IMDb score, or TMDB's until that's known. With neither (a new
-   * title, or too few votes), it stays.
+   * Worth recommending: not marked Already seen or Don't like, and rated well enough (Prefs.minRating): its IMDb score,
+   * or TMDB's until that's known. With neither (a new title, or too few votes), it stays.
    */
   function goodEnough(p) {
+    if (Prefs.hidden(keyOf(p))) return false;   // marked Already seen or Don't like
     var min = Prefs.minRating(), shown = /IMDb (\d+(\.\d+)?)/.exec(p.ratings || '');
     // Picks and ratings saved before the filter have only the shown text ("IMDb 5.8 · RT 40%"): the score is in it.
     var score = p.imdbScore || (shown && parseFloat(shown[1])) || p.tmdbScore;
@@ -654,7 +665,15 @@ var Data = (function () {
     }, done);
   }
 
-  function fetchList(done) {
+  var catalogueQuery = '', catalogueStamp = '';
+
+  /**
+   * What every TMDB discover request here shares: the TV's streaming apps in its region (TMDB's ids for them), the most
+   * popular first. done(error, query); kept until the apps, the key or the settings change (sourceStamp).
+   */
+  function catalogue(done) {
+    var st = sourceStamp();
+    if (catalogueQuery && catalogueStamp === st) { done(null, catalogueQuery); return; }
     tmdb('/watch/providers/movie?language=' + lang() + '&watch_region=' + REGION, function (err, res) {
       if (err) { done(err); return; }
       var ids = [];
@@ -663,9 +682,33 @@ var Data = (function () {
         if (s && usable(s[1])) ids.push(res.results[i].provider_id);
       }
       if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB (or switched on in Picks from)")); return; }
-      var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
+      catalogueQuery = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
           + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'))
           + (Prefs.hideAnimation() ? '&without_genres=' + ANIMATION : '');
+      catalogueStamp = st;
+      done(null, catalogueQuery);
+    });
+  }
+
+  /**
+   * The discover request for a kind: with a lowest rating (Prefs.minRating), titles from any year rated at least half a
+   * point under it on TMDB (IMDb often rates a little higher, and IMDb's own score decides once it's known: goodEnough).
+   * Without one, recent releases for the picks (`recent`), or any year for See more.
+   */
+  function discover(kind, recent) {
+    var min = Prefs.minRating();
+    if (min) {
+      var rated = '&vote_average.gte=' + Math.max(0, min - 0.5) + '&vote_count.gte=150';
+      return kind === 'movie' ? '/discover/movie?include_video=false' + rated : '/discover/tv?include_null_first_air_dates=false' + rated;
+    }
+    if (!recent) return kind === 'movie' ? '/discover/movie?vote_count.gte=50' : '/discover/tv?vote_count.gte=50';
+    return kind === 'movie' ? '/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0)
+      : '/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0);
+  }
+
+  function fetchList(done) {
+    catalogue(function (err, common) {
+      if (err) { done(err); return; }
       var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
       each(['movie', 'tv'], function (kind, next) {
         var candidates = [];
@@ -678,20 +721,12 @@ var Data = (function () {
           }, next);
         });
       }, function () {
-        // With a lowest rating (Prefs.minRating), the most popular titles on the TV's apps rated at least that on TMDB,
-        // from any year, so the tabs fill even at 8 or 9; half a point under it, since IMDb often rates a little higher,
-        // and IMDb's own score decides once it's known (goodEnough). Without one, this year's releases.
-        var min = Prefs.minRating(), rated = '&vote_average.gte=' + Math.max(0, min - 0.5) + '&vote_count.gte=150';
-        var movies = min ? '/discover/movie?include_video=false' + rated
-          : '/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0);
-        var shows = min ? '/discover/tv?include_null_first_air_dates=false' + rated
-          : '/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0);
         // 2 pages each (40 titles: enough for 30 picks a tab); 3 with a rating, some of which IMDb's score then leaves out.
-        var deep = min ? 3 : 2;
-        pages(movies + common, deep, function (results) {
+        var deep = Prefs.minRating() ? 3 : 2;
+        pages(discover('movie', true) + common, deep, function (results) {
           for (var j = 0; j < results.length; j++) addPick(fresh.movie, results[j], 'movie');
         }, function () {
-          pages(shows + common, deep, function (results) {
+          pages(discover('tv', true) + common, deep, function (results) {
             for (var k = 0; k < results.length; k++) addPick(fresh.tv, results[k], 'tv');
           }, function () {
             // Trending titles under the rating would only be dropped on screen: they leave room for rated ones.
@@ -708,6 +743,73 @@ var Data = (function () {
         });
       });
     });
+  }
+
+  // MARK: - See more: the same titles past what the tabs show, a page at a time
+
+  var BROWSE_PAGE = 18;   // 6 across, 3 rows
+
+  /**
+   * A See more session for a tab's kind ('movie', 'tv', or null for both, alternating). TMDB's pages come only as the
+   * person reaches them, so nothing waits for a page nobody turns to.
+   */
+  function browse(kind) {
+    var feeds = (kind ? [kind] : ['movie', 'tv']).map(function (k) { return {kind: k, got: [], next: 1, last: 1, total: 0}; });
+    var list = [];
+
+    function rebuild() {
+      list = [];
+      alternate(list, {}, feeds[0].got.filter(goodEnough), feeds[1] ? feeds[1].got.filter(goodEnough) : [], 100000);
+    }
+
+    /** One more TMDB page, from the kind that has fewer: done(true) when it brought any. */
+    function more(done) {
+      var f = null;
+      for (var i = 0; i < feeds.length; i++) if (feeds[i].next <= feeds[i].last && (!f || feeds[i].got.length < f.got.length)) f = feeds[i];
+      if (!f) { done(false); return; }
+      catalogue(function (err, common) {
+        if (err) { done(false); return; }
+        tmdb(discover(f.kind, false) + common + '&page=' + f.next, function (e, r) {
+          f.next++;
+          if (e || !r || !r.results) { f.last = 0; done(false); return; }   // this kind has no more for now
+          f.last = Math.min(r.total_pages || 1, 500);   // TMDB serves 500 pages at most
+          f.total = r.total_results || 0;
+          for (var j = 0; j < r.results.length; j++) addPick(f.got, r.results[j], f.kind);
+          rebuild();
+          done(true);
+        });
+      });
+    }
+
+    function count() {
+      var t = 0;
+      for (var i = 0; i < feeds.length; i++) t += feeds[i].total;
+      return Math.max(1, Math.ceil(t / BROWSE_PAGE));
+    }
+
+    return {
+      /** Page n (from 0): done(titles, pages), fetching what it lacks first. pages is TMDB's estimate. */
+      page: function (n, done) {
+        rebuild();   // a title marked Already seen or Don't like since leaves
+        (function fill() {
+          if (list.length >= (n + 1) * BROWSE_PAGE) { done(list.slice(n * BROWSE_PAGE, (n + 1) * BROWSE_PAGE), count()); return; }
+          more(function (got) {
+            if (got) fill();
+            else done(list.slice(n * BROWSE_PAGE, (n + 1) * BROWSE_PAGE), Math.max(1, Math.ceil(list.length / BROWSE_PAGE)));
+          });
+        })();
+      },
+      /** The ratings of a page's titles, one after the other: each() after each; a title under the rating then leaves. */
+      rate: function (titles, each, done) {
+        var i = 0;
+        (function next() {
+          if (i >= titles.length) { rebuild(); done(); return; }
+          var p = titles[i++];
+          if (!Prefs.mdblistKey() || p.ratings !== undefined) { next(); return; }
+          rate(p, function () { each(p); next(); });
+        })();
+      }
+    };
   }
 
   /** Fetches the list when stale (6 h, a new period of the day, language, key or apps), then this hour's details. */
@@ -802,6 +904,15 @@ var Data = (function () {
     recsError: function () { return recsError; },
     picks: now,
     showcase: all,
+    browse: browse,
+    BROWSE_PAGE: BROWSE_PAGE,
+    /** A title marked Already seen ('seen') or Don't like ('disliked'): it leaves the picks now, and never comes back. */
+    hide: function (p, why) { Prefs.hide(keyOf(p), why); changed(); },
+    /** Every marked title back (Home Settings, Hidden titles). */
+    unhideAll: function () { Prefs.unhideAll(); changed(); },
+    goodEnough: goodEnough,
+    /** A See more title's details (which of the TV's apps has it), before it opens: done(error). */
+    details: details,
     image: function (path, size) { return path ? 'https://image.tmdb.org/t/p/' + (size || 'w1280') + path : ''; },
 
     /** Night at the location: from sunset to sunrise (the last forecast; without one, 6:00 and 18:00). */

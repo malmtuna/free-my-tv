@@ -497,6 +497,42 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .sheet.open { opacity: 1; visibility: visible; pointer-events: auto; -webkit-transform: none; transform: none; -webkit-transition-delay: 0s; transition-delay: 0s; }
 .sheet h2 { position: absolute; left: 0; right: 0; top: 84px; margin: 0; text-align: center; font-size: 40px; font-weight: 600; }
 
+/* See more: the tab's titles past the picks, 18 posters a page, the focused one lifted with a lit edge (as the picks). */
+#browse .sub { position: absolute; left: 0; right: 0; top: 140px; text-align: center; font-size: 26px; color: rgba(255, 255, 255, 0.65); }
+#browse .status { position: absolute; left: 0; right: 0; top: 500px; text-align: center; font-size: 30px; color: rgba(255, 255, 255, 0.65); }
+#browse .dots { position: absolute; left: 0; right: 0; top: 1040px; text-align: center; font-size: 0; }
+.dot { display: inline-block; width: 10px; height: 10px; margin: 0 5px; border-radius: 5px; background: rgba(255, 255, 255, 0.3); }
+.dot.on { width: 30px; background: #FFF; }
+.bcell { position: absolute; width: 160px; height: 290px; }
+.bcell .poster {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 160px;
+  height: 240px;
+  border-radius: 14px;
+  background-color: #2C2C2E;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  -webkit-transition: -webkit-transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+.bcell .poster::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 14px; box-shadow: inset 0 0 0 2.5px rgba(255, 255, 255, 0.9); opacity: 0; -webkit-transition: opacity 0.17s; transition: opacity 0.17s; }
+.bcell .rate { position: absolute; right: 8px; bottom: 8px; padding: 3px 10px; border-radius: 14px; background: rgba(0, 0, 0, 0.66); font-size: 18px; font-weight: 600; white-space: nowrap; }
+.bcell .label { position: absolute; left: 0; right: 0; top: 252px; font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bcell.focus .poster { -webkit-transform: translateY(-6px) scale(1.08); transform: translateY(-6px) scale(1.08); z-index: 2; }
+.bcell.focus .poster::after { opacity: 1; }
+.bcell.focus .label { color: #FFF; }
+
+/* The See more card at the end of the picks: a dashed outline, so it doesn't read as one more title. */
+.card.seemore .img { background: rgba(255, 255, 255, 0.35); border: 3px dashed rgba(29, 29, 31, 0.3); box-sizing: border-box; }
+.night .card.seemore .img { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.4); }
+.card.seemore .go { position: absolute; left: 0; right: 0; top: 50%; margin-top: -46px; text-align: center; font-size: 30px; font-weight: 600; color: #1D1D1F; }
+.card.seemore .go .sym { display: block; width: 48px; height: 48px; margin: 0 auto 10px; background-color: #1D1D1F; }
+.night .card.seemore .go { color: #F5F5F7; }
+.night .card.seemore .go .sym { background-color: #F5F5F7; }
+
 #apps .grid { position: absolute; left: 0; top: 0; width: 1920px; -webkit-transition: -webkit-transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1); transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1); }
 .cell { position: absolute; width: 300px; height: 169px; }
 .cell .face {
@@ -632,9 +668,10 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 #toast.on { opacity: 1; -webkit-transform: translate(-50%, 0); transform: translate(-50%, 0); }
 
-/* MARK: - Focus ring: a frame with a gap around what has focus, so it shows from across the room. Dark by day, white at
-   night. A border, not a shadow: the .flat and .lite TVs, which drop the shadows, keep it. */
-.tile::before, .card::before, .key::before, .round::before {
+/* MARK: - Focus ring: a frame with a gap around the focused shelf tile or drawer tile, so it shows from across the room
+   (the picks and the round buttons have their own: a lit edge, a white fill). Dark by day, white at night. A border,
+   not a shadow: the .flat and .lite TVs, which drop the shadows, keep it. */
+.tile::before, .key::before {
   content: '';
   position: absolute;
   left: -9px;
@@ -648,11 +685,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   transition: opacity 0.17s;
 }
 .tile::before { border-radius: 31px; }
-.card::before { bottom: auto; height: 460px; border-radius: 27px; }   /* around the photo (442 high), not the title under it */
 .key::before { border-radius: 29px; }
-.round::before { border-radius: 50%; }
-.tile.focus::before, .card.focus::before, .key.focus::before, .round.focus::before { opacity: 1; }
-.night .tile::before, .night .card::before, .night .key::before, .night .round::before { border-color: #FFF; }
+.tile.focus::before, .key.focus::before { opacity: 1; }
+.night .tile::before, .night .key::before { border-color: #FFF; }
 
 /* The Magic Remote's pointer: no text selection, no outlines. */
 * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }

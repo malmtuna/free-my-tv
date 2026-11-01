@@ -14,6 +14,14 @@ var TV = (function () {
   var tizen2 = samsung && /Tizen 2\./.test(navigator.userAgent);
   // 2017 and 2018 Samsungs (Tizen 3 and 4) freeze opening their settings from an app (MU6100, MU6122, NU7400, #257).
   var tizen34 = samsung && /Tizen [34]\./.test(navigator.userAgent);
+
+  // The remote's play/pause: on a pick it offers Already seen and Don't like (home.js). Tizen hands an app only the keys
+  // it asks for; a remote may send any of the three.
+  if (samsung) {
+    ['MediaPlayPause', 'MediaPlay', 'MediaPause'].forEach(function (name) {
+      try { window.tizen.tvinputdevice.registerKey(name); } catch (e) {}
+    });
+  }
   // Tizen 2 (2016 TVs, WebKit 538) repaints every shadow on every frame of a focus animation: home.css turns them off.
   // So do LGs under 2 GB: an LG on webOS TV Lite 10 (MT5889, 1.3 GB, ratio 2) ran the shelf at 23-28 fps, 60 with lite
   // and 45 with only the shadows off (#318); a 43LR6700PSA on webOS TV Lite 8.5 (1.5 GB, ratio 1) at 45-50, 59 with
@@ -625,7 +633,7 @@ var TV = (function () {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
     },
 
-    /** Key codes: the arrows, OK and the TV's Back (LG 461, Samsung 10009). */
-    keys: {left: 37, up: 38, right: 39, down: 40, ok: 13, back: samsung ? 10009 : 461}
+    /** Key codes: the arrows, OK, the TV's Back (LG 461, Samsung 10009) and play/pause (Samsung's 10252, play 415, pause 19). */
+    keys: {left: 37, up: 38, right: 39, down: 40, ok: 13, back: samsung ? 10009 : 461, play: [10252, 415, 19]}
   };
 })();

@@ -362,11 +362,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', MARK: 'mark'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, mark: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.MARK; }
 
   function updateFocus() {
     var i, list;
@@ -386,6 +386,8 @@
     revealShelf();
     list = document.querySelectorAll('#drawer .key');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.DRAWER && st.drawer === i);
+    list = document.querySelectorAll('#browse .bcell');
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.BROWSE && st.browse === i);
     list = document.querySelectorAll('#apps .cell');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.APPS && st.grid === i);
     var rows = Math.max(1, Math.ceil(others.length / 5)), r = Math.floor(st.grid / 5), first = Math.max(0, Math.min(rows - 3, r - 1));
@@ -396,6 +398,7 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
+    focusRows($('markpick'), st.mark, st.zone === Z.MARK);
     setClass(body, 'drawer-open', st.zone === Z.DRAWER);
     followSoon();
   }
@@ -427,6 +430,9 @@
   // MARK: - Top: title, tabs, buttons, quotes
 
   var TAB_KIND = [null, 'movie', 'tv'];
+
+  /** The See more card's place in the row of picks (renderCards): not a title, so it never opens wide or lends a photo. */
+  var SEE_MORE = {id: 'see-more', backdrop: '', meta: '', more: true};
 
   function renderTop() {
     $('title').textContent = tr('For You');
@@ -467,6 +473,8 @@
     setClass(body, 'no-picks', !list.length);
     setClass(body, 'no-key', !Data.hasKey());   // as on Android: no title or tabs that could never show anything
     if (!Data.hasKey() && st.zone === Z.TOP && st.top < 3) st.top = 3;
+    // After the last pick, See more: the tab's titles past the picks, a page at a time (openBrowse).
+    if (list.length) list = list.concat([SEE_MORE]);
     var same = list.length === cards.length;
     for (var i = 0; same && i < list.length; i++) {
       same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta
@@ -476,6 +484,13 @@
     cards = list;
     holder.innerHTML = '';
     for (var c = 0; c < list.length; c++) {
+      if (list[c] === SEE_MORE) {
+        var more = el('div', 'card seemore', holder), go = el('div', 'go', el('div', 'img', more));
+        sym('apps', go);
+        go.appendChild(document.createTextNode(tr('See more')));
+        hover(more, Z.CARDS, c);
+        continue;
+      }
       var p = list[c], card = el('div', 'card', holder);
       var img = el('div', 'img', card);
       // Narrow: the poster (the backdrop cropped without one); the wide card fades its backdrop in over it, loaded then.
@@ -491,7 +506,7 @@
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
     if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
-    backdrop(list.length ? Data.image(list[st.card].backdrop, 'w300') : '');
+    if (!list.length || !list[st.card].more) backdrop(list.length ? Data.image(list[st.card].backdrop, 'w300') : '');
     updateFocus();
   }
 
@@ -503,7 +518,7 @@
   function layoutCards() {
     var holder = $('cards'), nodes = holder.children, left = 80, scroll = Math.max(0, st.card - 2) * 360;
     for (var i = 0; i < nodes.length; i++) {
-      var wide = i === st.card, w = wide ? 1040 : 320, n = nodes[i], at = left - scroll;
+      var wide = i === st.card && !(cards[i] && cards[i].more), w = wide ? 1040 : 320, n = nodes[i], at = left - scroll;
       n.style.left = left + 'px';
       n.style.width = w + 'px';
       setClass(n, 'wide', wide);
@@ -548,7 +563,8 @@
   function followSoon() {
     clearTimeout(bgTimer);
     bgTimer = setTimeout(function () {
-      if (cards.length) backdrop(Data.image(cards[Math.min(st.card, cards.length - 1)].backdrop, 'w300'));
+      var p = cards[Math.min(st.card, cards.length - 1)];
+      if (p && !p.more) backdrop(Data.image(p.backdrop, 'w300'));   // on See more, the last photo stays
     }, BG_FOLLOW_MS);
   }
 
@@ -777,8 +793,163 @@
     updateFocus();
   }
 
+  // MARK: - See more: the tab's titles past the picks, 18 posters a page; ▼ on the last row turns to the next page
+
+  var browsing = null, browsePage = 0, browsePages = 1, browseTitles = [], browseSeq = 0, BROWSE_COLS = 6;
+
+  function openBrowse() {
+    browsing = Data.browse(TAB_KIND[st.tab]);
+    browseTitles = [];
+    browsePages = 1;
+    st.zone = Z.BROWSE;
+    setClass($('browse'), 'open', true);
+    showBrowsePage(0, 0);
+  }
+
+  /** Back to the row of picks, on the See more card. */
+  function closeBrowse() {
+    setClass($('browse'), 'open', false);
+    browsing = null;
+    browseSeq++;
+    st.zone = Z.CARDS;
+    updateFocus();
+  }
+
+  /** Page n, its titles fetched first if need be; the focus lands at `focus` (a place on the page). */
+  function showBrowsePage(n, focus) {
+    var mine = ++browseSeq, session = browsing;
+    if (!browseTitles.length) renderBrowse(tr('Loading…'));
+    session.page(n, function (titles, pages) {
+      if (mine !== browseSeq || browsing !== session) return;   // closed, or another page asked for since
+      if (!titles.length && n > 0) return;                       // nothing past here: stay on this page
+      browsePage = n;
+      browsePages = pages;
+      browseTitles = titles;
+      st.browse = Math.min(focus, Math.max(0, titles.length - 1));
+      renderBrowse(titles.length ? '' : tr('Nothing more to show.'));
+      // The ratings come in one by one; a title IMDb rates under the setting leaves, and the page fills up again.
+      session.rate(titles, function (p) {
+        if (mine === browseSeq) rateBrowsed(p);
+      }, function () {
+        if (mine !== browseSeq) return;
+        session.page(n, function (again, total) {
+          if (mine !== browseSeq || again.length === titles.length && again.every(function (p, i) { return p === titles[i]; })) return;
+          browseTitles = again;
+          browsePages = total;
+          st.browse = Math.min(st.browse, Math.max(0, again.length - 1));
+          renderBrowse('');
+        });
+      });
+    });
+  }
+
+  function heading() {
+    var name = [tr('Explore'), tr('Movies'), tr('Shows')][st.tab], min = Prefs.minRating();
+    var page = trf('Page {n} of {total}', {n: browsePage + 1, total: browsePages});
+    return {title: name, sub: min ? page + '  ·  ' + trf('IMDb {n}+', {n: min}) : page};
+  }
+
+  function renderBrowse(status) {
+    var sheet = $('browse'), h = heading(), grid = sheet.querySelector('.grid'), dots = sheet.querySelector('.dots');
+    sheet.querySelector('h2').textContent = h.title;
+    sheet.querySelector('.sub').textContent = h.sub;
+    grid.innerHTML = '';
+    if (status) el('div', 'status', grid, status);
+    for (var i = 0; i < browseTitles.length; i++) {
+      var p = browseTitles[i], cell = el('div', 'bcell', grid);
+      cell.style.left = (255 + (i % BROWSE_COLS) * 250) + 'px';
+      cell.style.top = (180 + Math.floor(i / BROWSE_COLS) * 285) + 'px';
+      var poster = el('div', 'poster', cell);
+      poster.style.backgroundImage = 'url(' + Data.image(p.poster || p.backdrop, p.poster ? 'w185' : 'w300') + ')';
+      cell.setAttribute('data-id', p.kind + ':' + p.id);
+      rateBrowsed(p, cell);
+      el('div', 'label', cell, p.title);
+      hover(cell, Z.BROWSE, i);
+    }
+    dots.innerHTML = '';
+    if (browsePages > 1 && browsePages <= 12) for (var d = 0; d < browsePages; d++) el('span', 'dot' + (d === browsePage ? ' on' : ''), dots);
+    updateFocus();
+  }
+
+  /** A title's IMDb score on its poster, once it's known. */
+  function rateBrowsed(p, cell) {
+    cell = cell || $('browse').querySelector('[data-id="' + p.kind + ':' + p.id + '"]');
+    var m = /IMDb (\d+(\.\d+)?)/.exec(p.ratings || '');
+    if (!cell || !m || cell.querySelector('.rate')) return;
+    el('div', 'rate', cell.querySelector('.poster'), 'IMDb ' + m[1]);
+  }
+
+  /** Within the page; ▼ past the last row turns to the next page, ▲ past the first to the one before. */
+  function moveBrowse(dx, dy) {
+    var n = browseTitles.length, col = st.browse % BROWSE_COLS, row = Math.floor(st.browse / BROWSE_COLS);
+    var rows = Math.ceil(n / BROWSE_COLS);
+    if (dx) {
+      var c = col + dx;
+      if (c >= 0 && c < BROWSE_COLS && st.browse + dx < n) st.browse += dx;
+    } else if (dy > 0) {
+      if (row + 1 < rows) st.browse = Math.min(n - 1, st.browse + BROWSE_COLS);
+      else if (browsePage + 1 < browsePages) { showBrowsePage(browsePage + 1, col); return; }
+    } else if (dy < 0) {
+      if (row > 0) st.browse -= BROWSE_COLS;
+      else if (browsePage > 0) { showBrowsePage(browsePage - 1, Data.BROWSE_PAGE - BROWSE_COLS + col); return; }
+    }
+    updateFocus();
+  }
+
+  /** OK on a title: which of the TV's apps has it (its details), then that app. */
+  function openBrowsed() {
+    var p = browseTitles[st.browse];
+    if (!p) return;
+    Data.details(p, function () {
+      var target = pickTarget(p);
+      if (target) launcher(target.app.id, target.app.title, target.params)();
+      else toast(trf("Couldn't open {app}.", {app: p.title}));
+    });
+  }
+
+  // MARK: - Already seen or Don't like: play/pause on a pick or a See more title, and it's never recommended again
+
+  var MARKS = [['seen', 'Already seen'], ['disliked', "Don't like"], ['', 'Cancel']], marking = null, markFrom = null;
+
+  /** The menu for the focused title; false when nothing there can be marked (play/pause then does nothing). */
+  function openMark() {
+    var p = st.zone === Z.CARDS ? cards[st.card] : st.zone === Z.BROWSE ? browseTitles[st.browse] : null;
+    if (!p || p.more) return false;
+    marking = p;
+    markFrom = st.zone;
+    st.zone = Z.MARK;
+    st.mark = 0;
+    var box = $('markpick').firstChild;
+    box.innerHTML = '';
+    el('div', 'title', box, p.title);
+    var list = el('div', 'list', box), holder = el('div', 'rows', list);
+    list.style.height = MARKS.length * 78 + 'px';
+    for (var i = 0; i < MARKS.length; i++) hover(el('div', 'row', holder, tr(MARKS[i][1])), Z.MARK, i);
+    el('div', 'hint', box, tr("Marked titles aren't recommended again."));
+    setClass($('markpick'), 'open', true);
+    updateFocus();
+    return true;
+  }
+
+  /** OK (pick): the title is marked and leaves the picks or the page; Back or Cancel: nothing changes. */
+  function closeMark(pick) {
+    var p = marking, why = pick ? MARKS[st.mark][0] : '';
+    setClass($('markpick'), 'open', false);
+    marking = null;
+    st.zone = markFrom;
+    if (p && why) {
+      Data.hide(p, why);   // the picks are drawn again without it (Data.onChange)
+      if (st.zone === Z.BROWSE && browsing) showBrowsePage(browsePage, st.browse);
+    }
+    updateFocus();
+  }
+
   function closeSheets() {
     setClass($('apps'), 'open', false);
+    setClass($('browse'), 'open', false);
+    setClass($('markpick'), 'open', false);
+    browsing = null;
+    marking = null;
     setClass($('settings'), 'open', false);
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
@@ -796,6 +967,21 @@
 
   /** Picks per tab: a few steps up to 30, so the arrows needn't go one by one. */
   var CARD_COUNTS = [3, 4, 5, 6, 8, 10, 15, 20, 25, 30];
+
+  var unhideAt = 0;
+
+  /** Hidden titles: the first OK asks, a second within 5 s brings every marked title back. */
+  function unhideAll() {
+    if (!Prefs.hiddenCount()) { toast(tr('No titles are hidden.')); return; }
+    if (Date.now() - unhideAt > 5000) {
+      unhideAt = Date.now();
+      toast(tr('Press OK again to show every hidden title again.'));
+      return;
+    }
+    unhideAt = 0;
+    Data.unhideAll();
+    toast(tr('Hidden titles can be recommended again.'));
+  }
 
   /** The lowest IMDb rating a pick may have: 0 is any. */
   var MIN_RATINGS = [0, 5, 6, 6.5, 7, 7.5, 8];
@@ -818,6 +1004,8 @@
         step: function (d) { cycle('cards', CARD_COUNTS, Prefs.cards(), d); renderCards(); Data.refresh(); }},
       {label: tr('Lowest IMDb rating'), value: Prefs.minRating() ? String(Prefs.minRating()) : tr('rating|Any'),
         step: function (d) { cycle('minRating', MIN_RATINGS, Prefs.minRating(), d); renderCards(); Data.refresh(); }},
+      {label: tr('Hidden titles'), value: String(Prefs.hiddenCount()), opens: true,
+        step: function (d) { if (d >= 0) unhideAll(); }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
@@ -1412,6 +1600,7 @@
         else openSettings();
         return;
       case Z.CARDS:
+        if (cards[st.card] && cards[st.card].more) { openBrowse(); return; }
         var target = pickTarget(cards[st.card]);
         if (target) launcher(target.app.id, target.app.title, target.params)();
         return;
@@ -1423,6 +1612,12 @@
         return;
       case Z.APPS:
         if (others[st.grid]) launcher(others[st.grid].id, others[st.grid].title)();
+        return;
+      case Z.BROWSE:
+        openBrowsed();
+        return;
+      case Z.MARK:
+        closeMark(true);
         return;
       case Z.SETTINGS:
         if (rowsNow[st.row]) { rowsNow[st.row].step(1); if (st.zone === Z.SETTINGS) renderSettings(); }
@@ -1487,6 +1682,12 @@
         if (dx) st.drawer = Math.max(0, Math.min(drawerItems.length - 1, st.drawer + dx));
         else if (dy < 0) { closeDrawer(); return; }
         break;
+      case Z.BROWSE:
+        moveBrowse(dx, dy);
+        return;
+      case Z.MARK:
+        if (dy) st.mark = Math.max(0, Math.min(MARKS.length - 1, st.mark + dy));
+        break;
       case Z.APPS:
         var g = st.grid + dx + dy * 5;
         if (g >= 0 && g < others.length && (dx === 0 || Math.floor(g / 5) === Math.floor(st.grid / 5))) st.grid = g;
@@ -1527,6 +1728,8 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.MARK) { closeMark(false); return; }
+    if (st.zone === Z.BROWSE) { closeBrowse(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
@@ -1536,7 +1739,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.BROWSE || zone === Z.MARK))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < 3 && !Data.hasKey()) return;   // the tabs are hidden without the picks
@@ -1547,6 +1750,8 @@
       else if (zone === Z.SHELF) st.shelf = index;
       else if (zone === Z.DRAWER) st.drawer = index;
       else if (zone === Z.APPS) st.grid = index;
+      else if (zone === Z.BROWSE) st.browse = index;
+      else if (zone === Z.MARK) st.mark = index;
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;
       else if (zone === Z.LANG) st.lang = index;
@@ -1724,6 +1929,7 @@
     else if (k === TV.keys.down) move(0, 1);
     else if (k === TV.keys.ok) activate();
     else if (k === TV.keys.back || k === 27 || k === 8) back();
+    else if (TV.keys.play.indexOf(k) >= 0) { if (!openMark()) return; }
     else return;
     e.preventDefault();
   });
