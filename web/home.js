@@ -1839,3 +1839,50 @@
   window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast,
     showAmbient: showAmbient, hideAmbient: hideAmbient, applyDim: applyDim};
 })();
+
+// Test build only (branch home-probe): records what the app sees while it's in the background, to find out whether it
+// can tell Samsung's Home opening and bring itself back. Every event goes to a receiver on the PC that's testing it.
+(function () {
+  'use strict';
+  if (TV.name !== 'tizen' || !window.tizen || !tizen.application) return;
+  var RECEIVER = 'http://192.168.18.202:8799/log', started = Date.now(), lastApps = '', hiddenAt = 0, relaunched = false;
+
+  function send(ev, data) {
+    try {
+      var x = new XMLHttpRequest();
+      x.open('POST', RECEIVER, true);
+      x.setRequestHeader('Content-Type', 'text/plain');
+      x.send(JSON.stringify({t: ((Date.now() - started) / 1000).toFixed(1), ev: ev, hidden: document.hidden, data: data || null}));
+    } catch (e) {}
+  }
+
+  send('start', {version: navigator.userAgent});
+
+  document.addEventListener('visibilitychange', function () {
+    hiddenAt = document.hidden ? Date.now() : 0;
+    if (!document.hidden) relaunched = false;
+    send(document.hidden ? 'hidden' : 'visible');
+  });
+
+  // Which apps are running, every second: does anything change when Samsung's Home opens?
+  setInterval(function () {
+    try {
+      tizen.application.getAppsContext(function (list) {
+        var ids = list.map(function (c) { return c.appId; }).sort().join(',');
+        if (ids !== lastApps) { lastApps = ids; send('apps', ids.split(',')); }
+      }, function (e) { send('apps-error', e && e.message); });
+    } catch (e) { send('apps-throw', e.message); }
+    // Hidden for 20 s: can the app bring itself back to the front? (once per hiding)
+    if (hiddenAt && !relaunched && Date.now() - hiddenAt > 20000) {
+      relaunched = true;
+      send('relaunch-try');
+      try {
+        tizen.application.launch(tizen.application.getCurrentApplication().appInfo.id,
+          function () { send('relaunch-ok'); }, function (e) { send('relaunch-error', e && e.message); });
+      } catch (e) { send('relaunch-throw', e.message); }
+    }
+  }, 1000);
+
+  // A heartbeat: do timers keep running in the background at all?
+  setInterval(function () { send('beat'); }, 5000);
+})();
