@@ -79,13 +79,22 @@ var Prefs = (function () {
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
-    /** Picks per tab: 3 (as it was) up to 10. */
-    cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 10 ? 10 : n; },
+    /** Picks per tab: 3 (as it was) up to 30. */
+    cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 30 ? 30 : n; },
     /** Cartoons and anime out of the picks (Home Settings), or config.properties' hide_animation. */
     hideAnimation: function () { return pick('hideAnimation', CONFIG.hideAnimation === true) === true; },
     shelf: function () { return pick('shelf', null); },
     /** DodgyBox (HDMI 2) has been put on a shelf picked on the TV once: taken off again in the Shelf editor, it stays off. */
     dodgyAdded: function () { return pick('dodgyAdded', false) === true; },
+    /** Names given to the HDMI inputs on the TV ({hdmi2: 'DodgyBox'}), on the shelf and among the drawer's inputs. */
+    inputNames: function () { return pick('inputNames', {hdmi2: 'DodgyBox'}); },
+    /** Names an input ('hdmi2'); an empty name gives it back its own ("HDMI 2"). */
+    setInputName: function (key, name) {
+      var old = this.inputNames(), names = {};
+      for (var k in old) if (old.hasOwnProperty(k) && k !== key) names[k] = old[k];
+      if (name) names[key] = name;
+      this.set('inputNames', names);
+    },
     /** The shelf_apps of the build that last set the shelf, so a new one wins once over the TV's choice. */
     shelfConfig: function () { return pick('shelfConfig', ''); },
     /** The weather's city, picked on the TV (Home Settings → City), or config.properties' (or the time zone's). */
@@ -611,6 +620,16 @@ var Data = (function () {
     })();
   }
 
+  /** TMDB's first two pages of a list (40 titles: enough for 30 picks a tab), one after the other; a failed page adds none. */
+  function pages(path, add, done) {
+    each([1, 2], function (page, next) {
+      tmdb(path + '&page=' + page, function (e, r) {
+        if (!e && r && r.results) add(r.results);
+        next();
+      });
+    }, done);
+  }
+
   function fetchList(done) {
     tmdb('/watch/providers/movie?language=' + lang() + '&watch_region=' + REGION, function (err, res) {
       if (err) { done(err); return; }
@@ -625,23 +644,26 @@ var Data = (function () {
           + (Prefs.hideAnimation() ? '&without_genres=' + ANIMATION : '');
       var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
       each(['movie', 'tv'], function (kind, next) {
-        tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {
-          var candidates = [];
-          for (var j = 0; !e && j < r.results.length && j < 20; j++) addPick(candidates, r.results[j], kind);
+        var candidates = [];
+        pages('/trending/' + kind + '/week?language=' + lang(), function (results) {
+          for (var j = 0; j < results.length; j++) addPick(candidates, results[j], kind);
+        }, function () {
           // Trending is only kept when it's on one of the TV's apps: the details say where.
           each(candidates, function (p, n) {
             details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
           }, next);
         });
       }, function () {
-        tmdb('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (e1, r1) {
-          for (var j = 0; !e1 && j < r1.results.length; j++) addPick(fresh.movie, r1.results[j], 'movie');
-          tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
-            for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
+        pages('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (results) {
+          for (var j = 0; j < results.length; j++) addPick(fresh.movie, results[j], 'movie');
+        }, function () {
+          pages('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (results) {
+            for (var k = 0; k < results.length; k++) addPick(fresh.tv, results[k], 'tv');
+          }, function () {
             var list = [], seen = {};
-            // Up to 10 picks a tab (Prefs.cards), and the Movies and Shows tabs each draw on half of the list.
-            alternate(list, seen, hot.movie, hot.tv, 48);
-            alternate(list, seen, fresh.movie, fresh.tv, 48);
+            // Up to 30 picks a tab (Prefs.cards), and the Movies and Shows tabs each draw on half of the list.
+            alternate(list, seen, hot.movie, hot.tv, 120);
+            alternate(list, seen, fresh.movie, fresh.tv, 120);
             if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
             picks = list;
             done(null);

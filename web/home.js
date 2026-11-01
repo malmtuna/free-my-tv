@@ -285,13 +285,34 @@
 
   var apps = [], shelf = [], others = [], inputs = [];
 
-  // HDMI 2 is the DodgyBox: a tile of its own on the shelf (it opens like the drawer's input), and its name there too.
-  var DODGY = {id: 'source:HDMI:2', title: 'DodgyBox', color: '#4A4A52'};
+  // The HDMI inputs can go on the shelf too (Home Settings → Shelf), opening like the drawer's, under the names given in
+  // Home Settings (HDMI 2 is the DodgyBox). They stay out of All Apps. HDMI 2 is on the shelf until taken off.
+  var HDMI_PORTS = 4, DODGY = {id: 'source:HDMI:2'};
 
-  function withDodgyBox(list) {
+  /** An input's name: the one given on the TV, or its own ("HDMI 2"). */
+  function inputName(n) { return Prefs.inputNames()['hdmi' + n] || 'HDMI ' + n; }
+
+  function withInputs(list) {
     if (TV.name === 'webos') return list;   // LG's inputs have other ids
-    for (var i = 0; i < list.length; i++) if (list[i].id === DODGY.id) return list;
-    return list.concat([DODGY]);
+    var out = list.filter(function (a) { return !a.input; });
+    for (var n = 1; n <= HDMI_PORTS; n++) out.push({id: 'source:HDMI:' + n, title: inputName(n), color: '#4A4A52', input: true});
+    return out;
+  }
+
+  function nameInputs() {
+    for (var i = 0; i < inputs.length; i++) {
+      var m = /^hdmi(\d)$/.exec(inputs[i].key || '');
+      if (m) inputs[i].label = inputName(+m[1]);
+    }
+  }
+
+  /** An input renamed in Home Settings: the shelf and the drawer show its new name. */
+  function inputsRenamed() {
+    apps = withInputs(apps);
+    nameInputs();
+    pickShelf();
+    renderShelf();
+    renderDrawer();
   }
 
   /** shelf_apps in config.properties: the shelf in that order, by id or name (part of it). */
@@ -330,7 +351,7 @@
     }
     if (!chosen) for (var d = 0; d < apps.length; d++) if (apps[d].id === DODGY.id && out.indexOf(apps[d]) < 0) out.push(apps[d]);
     shelf = out;
-    others = apps.filter(function (x) { return shelf.indexOf(x) < 0; });
+    others = apps.filter(function (x) { return shelf.indexOf(x) < 0 && !x.input; });
   }
 
   // MARK: - Focus
@@ -766,6 +787,9 @@
 
   // MARK: - Home Settings
 
+  /** Picks per tab: a few steps up to 30, so the arrows needn't go one by one. */
+  var CARD_COUNTS = [3, 4, 5, 6, 8, 10, 15, 20, 25, 30];
+
   function settingRows() {
     var unit = Prefs.temperature(), theme = Prefs.theme();
     var auto = tr('Automatic'), picked = pickedLanguage();
@@ -781,7 +805,7 @@
       {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : tr('Photos'),
         step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
       {label: tr('Picks per tab'), value: String(Prefs.cards()),
-        step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 8) % 8); renderCards(); Data.refresh(); }},
+        step: function (d) { cycle('cards', CARD_COUNTS, Prefs.cards(), d); renderCards(); Data.refresh(); }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
@@ -826,6 +850,14 @@
         step: function (d) { cycle('openPicks', ['apps', 'nuvio'], open, d); }});
     }
     rows.push({label: tr('Shelf'), value: '›', shelf: true, step: function (d) { if (d >= 0) openShelfEdit(); }});
+    if (TV.name !== 'webos') {
+      for (var h = 1; h <= HDMI_PORTS; h++) {
+        (function (n) {
+          rows.push({label: trf('Name of HDMI {n}', {n: n}), value: Prefs.inputNames()['hdmi' + n] || '—', opens: true,
+            keyKind: 'name:hdmi' + n, step: function (d) { if (d >= 0) openKey('name:hdmi' + n); }});
+        })(h);
+      }
+    }
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
     if (TV.canOpenSettings) rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
@@ -1046,21 +1078,29 @@
 
   // MARK: - TMDB key: typed on the TV, so builds without one (the releases) get the picks too; TMDB checks it first
 
-  // The same sheet takes the MDBList key (keyKind 'mdblist'), which brings IMDb and Rotten Tomatoes to the picks.
+  // The same sheet takes the MDBList key (keyKind 'mdblist'), which brings IMDb and Rotten Tomatoes to the picks, and an
+  // HDMI input's name (keyKind 'name:hdmi2'): typed the same way, saved without asking anyone.
   var keyStatus = '', keyWarn = false, keyTimer = 0, keySeq = 0, keyAsking = false, keyKind = 'tmdb';
 
   function mdblist() { return keyKind === 'mdblist'; }
 
+  /** The input being named ('hdmi2'), or '' when the sheet takes a key. */
+  function naming() { return keyKind.indexOf('name:') === 0 ? keyKind.slice(5) : ''; }
+
   /** The service the sheet's key is for, as people know it. */
   function service() { return mdblist() ? 'MDBList' : 'TMDB'; }
 
-  function keyOnTV() { return mdblist() ? !!Prefs.mdblistKey() : Prefs.tmdbKeyOnTV(); }
+  function keyOnTV() {
+    if (naming()) return !!Prefs.inputNames()[naming()];
+    return mdblist() ? !!Prefs.mdblistKey() : Prefs.tmdbKeyOnTV();
+  }
 
   function keyRows() { return keyAsking ? 2 : keyOnTV() ? 3 : 2; }
 
   function checking() { return trf('Checking the key with {service}…', {service: service()}); }
 
   function keySteps() {
+    if (naming()) return tr('The name shows on the shelf and among the inputs.');
     if (mdblist()) {
       return tr('The key brings Rotten Tomatoes and IMDb ratings to the picks.') + '\n'
         + tr('Free, and it takes two minutes:') + '\n1. ' + tr('Sign in at mdblist.com.')
@@ -1074,7 +1114,8 @@
   function renderKey() {
     var box = $('keypick').firstChild, old = fieldOf('keypick'), typed = old ? old.value : '', inField = typingIn('keypick');
     box.innerHTML = '';
-    var name = trf('{service} key', {service: service()});
+    var port = naming() ? naming().slice(4) : '';
+    var name = port ? trf('Name of HDMI {n}', {n: port}) : trf('{service} key', {service: service()});
     el('div', 'title', box, keyAsking ? trf('Remove the {service} key?', {service: service()}) : name);
     var list = el('div', 'list', box), holder = el('div', 'rows', list);
     list.style.height = keyRows() * 78 + 'px';
@@ -1084,14 +1125,17 @@
       updateFocus();
       return;
     }
-    var keyField = textField(holder, Z.KEY, typed, keyKind === 'tmdb' ? tr('API Read Access Token or API Key') : tr('API key'), name);
-    // A v3 key is lowercase hex: the TV's keyboard mustn't capitalize it (the city's field wants capitals).
-    keyField.setAttribute('autocapitalize', 'none');
-    keyField.setAttribute('autocorrect', 'off');
+    var hint = port ? 'HDMI ' + port : keyKind === 'tmdb' ? tr('API Read Access Token or API Key') : tr('API key');
+    var keyField = textField(holder, Z.KEY, typed, hint, name);
+    if (!port) {
+      // A v3 key is lowercase hex: the TV's keyboard mustn't capitalize it (a name wants capitals).
+      keyField.setAttribute('autocapitalize', 'none');
+      keyField.setAttribute('autocorrect', 'off');
+    }
     var save = el('div', 'row', holder, tr('Save'));
     sym('chevron_right', el('span', 'value', save));
     hover(save, Z.KEY, 1);
-    if (keyOnTV()) hover(el('div', 'row', holder, tr('Remove the key')), Z.KEY, 2);
+    if (keyOnTV()) hover(el('div', 'row', holder, port ? tr('Reset the name') : tr('Remove the key')), Z.KEY, 2);
     if (keyStatus) setClass(el('div', 'hint', box, keyStatus), 'warn', keyWarn);
     el('div', 'hint steps', box, keySteps());
     if (inField) openField('keypick');
@@ -1107,8 +1151,19 @@
     keyAsking = false;
     $('keypick').firstChild.innerHTML = '';
     renderKey();
+    if (naming() && fieldOf('keypick')) fieldOf('keypick').value = Prefs.inputNames()[naming()] || '';
     setClass($('keypick'), 'open', true);
     openField('keypick');
+  }
+
+  /** A name typed for an input: saved, and the sheet closes on its row. Empty: the field again. */
+  function saveName() {
+    var f = fieldOf('keypick'), typed = (f ? f.value : '').replace(/^\s+|\s+$/g, '').slice(0, 24);
+    closeField('keypick');
+    if (!typed) { st.key = 0; openField('keypick'); updateFocus(); return; }
+    Prefs.setInputName(naming(), typed);
+    inputsRenamed();
+    closeKey();
   }
 
   function setKeyStatus(text, warn) {
@@ -1192,7 +1247,8 @@
   function activateKey() {
     if (keyAsking) { if (st.key === 1) removeKey(); else askRemoveKey(false); }
     else if (st.key === 0) openField('keypick');
-    else if (st.key === 1) saveKey();
+    else if (st.key === 1) { if (naming()) saveName(); else saveKey(); }
+    else if (naming()) { Prefs.setInputName(naming(), ''); inputsRenamed(); closeKey(); }   // a name needs no asking
     else askRemoveKey(true);
   }
 
@@ -1668,7 +1724,7 @@
   function typing(k) {
     var sheet = st.zone === Z.CITY ? 'citypick' : st.zone === Z.KEY ? 'keypick' : '';
     if (!sheet || !typingIn(sheet)) return false;
-    if (k === TV.keys.ok || k === 65376) { if (st.zone === Z.CITY) searchCity(); else saveKey(); }
+    if (k === TV.keys.ok || k === 65376) { if (st.zone === Z.CITY) searchCity(); else if (naming()) saveName(); else saveKey(); }
     else if (k === TV.keys.back || k === 27 || k === 65385) { closeField(sheet); updateFocus(); }
     else if (k === TV.keys.up || k === TV.keys.down) { closeField(sheet); move(0, k === TV.keys.up ? -1 : 1); }
     return true;   // anything else types into the field
@@ -1701,11 +1757,11 @@
     TV.apps(function (list) {
       apps = list.filter(function (a) { return !hidden(a); });
       Data.setApps(apps);
-      apps = withDodgyBox(apps);   // after setApps: the picks' services never match an input
+      apps = withInputs(apps);   // after setApps: the picks' services never match an input
       pickShelf();
       TV.inputs(function (list2) {
         inputs = list2;
-        for (var i = 0; i < inputs.length; i++) if (inputs[i].id === DODGY.id) inputs[i].label = DODGY.title;
+        nameInputs();
         if (done) done();
       });
     });
