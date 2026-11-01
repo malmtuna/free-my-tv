@@ -362,11 +362,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, cardButton: -1};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', TITLE: 'title'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, cardButton: -1, titleButton: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.TITLE; }
 
   function updateFocus() {
     var i, list;
@@ -391,6 +391,8 @@
     revealShelf();
     list = document.querySelectorAll('#drawer .key');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.DRAWER && st.drawer === i);
+    list = document.querySelectorAll('#titlebox .tbtn');
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TITLE && st.titleButton === i);
     list = document.querySelectorAll('#browse .bcell');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.BROWSE && st.browse === i);
     list = document.querySelectorAll('#apps .cell');
@@ -919,21 +921,111 @@
     updateFocus();
   }
 
-  /** OK on a title: which of the TV's apps has it (its details), then that app. */
-  function openBrowsed() {
-    var p = browseTitles[st.browse];
-    if (!p) return;
-    Data.details(p, function () {
-      var target = pickTarget(p);
-      if (target) launcher(target.app.id, target.app.title, target.params)();
-      else toast(trf("Couldn't open {app}.", {app: p.title}));
+  // MARK: - A title's box: OK on a pick or a See more title; its description, where it streams, and what to do with it
+
+  var titlePick = null, titleFrom = null, titleButtons = [], titleInfo = null, titleSeq = 0;
+
+  function openTitle(p) {
+    titlePick = p;
+    titleFrom = st.zone;
+    titleInfo = null;
+    st.zone = Z.TITLE;
+    st.titleButton = 0;
+    var photo = $('titlebox').querySelector('.photo');
+    photo.style.backgroundImage = p.backdrop ? 'url(' + Data.image(p.backdrop, 'w1280') + ')' : 'none';
+    renderTitle();
+    setClass($('titlebox'), 'open', true);
+    var mine = ++titleSeq;
+    Data.about(p, function (err, info) {
+      if (mine !== titleSeq || titlePick !== p) return;   // closed, or another opened since
+      titleInfo = info || {overview: '', facts: '', trailer: '', streams: [], failed: true};
+      renderTitle();
     });
+  }
+
+  /** Back where it was opened from: the row of picks, or See more. */
+  function closeTitle() {
+    setClass($('titlebox'), 'open', false);
+    titlePick = null;
+    titleSeq++;
+    st.zone = titleFrom || Z.CARDS;
+    updateFocus();
+  }
+
+  /** The buttons: Watch on each of the TV's apps that has it, the trailer, Already seen and Don't like. */
+  function titleActions(p, info) {
+    var out = [], streams = (info && info.streams) || [], apps = {};
+    for (var i = 0; i < streams.length; i++) {
+      var app = streams[i].app && Data.appFor(streams[i].app);
+      if (app && !apps[app.id]) {
+        apps[app.id] = true;
+        out.push({label: trf('Watch on {app}', {app: streams[i].name}), symbol: 'play', run: launcher(app.id, app.title)});
+      }
+    }
+    if (!out.length && !info) {
+      var target = pickTarget(p);   // until the box knows more: the app the pick came with
+      if (target) out.push({label: trf('Watch on {app}', {app: target.app.title}), symbol: 'play', run: launcher(target.app.id, target.app.title, target.params)});
+    }
+    if (info && info.trailer) {
+      out.push({label: tr('Play trailer'), symbol: 'live_tv', run: function () {
+        TV.youtube(info.trailer, function (ok) { if (!ok) toast(tr("Couldn't play the trailer.")); });
+      }});
+    }
+    for (var b = 0; b < CARD_BUTTONS.length; b++) {
+      (function (why, label) {
+        out.push({label: tr(label), run: function () { hideTitle(p, why); }});
+      })(CARD_BUTTONS[b][0], CARD_BUTTONS[b][1]);
+    }
+    return out;
+  }
+
+  /** Already seen or Don't like from the box: it closes, and the title leaves the picks and See more. */
+  function hideTitle(p, why) {
+    closeTitle();
+    Data.hide(p, why);
+    toast(trf("{title} won't be recommended again.", {title: p.title}));
+    if (st.zone === Z.BROWSE && browsing) showBrowsePage(browsePage, st.browse);
+  }
+
+  function renderTitle() {
+    var p = titlePick, info = titleInfo, box = $('titlebox').querySelector('.info');
+    if (!p) return;
+    box.innerHTML = '';
+    el('h1', '', box, p.title);
+    var facts = [], shown = info ? info.facts : p.meta;
+    if (shown) facts.push(shown);
+    if (p.ratings) facts.push(p.ratings);
+    el('div', 'facts', box, facts.join('  ·  '));
+    el('div', 'overview', box, info ? info.overview || (info.failed ? tr("Couldn't load the details.") : tr('No description yet.')) : tr('Loading…'));
+    if (info && info.streams.length) {
+      var where = el('div', 'streams', box, tr('Streaming on:') + ' ');
+      for (var i = 0; i < info.streams.length; i++) {
+        if (i) where.appendChild(document.createTextNode(', '));
+        if (info.streams[i].app) el('b', '', where, info.streams[i].name);   // on this TV: in bold
+        else where.appendChild(document.createTextNode(info.streams[i].name));
+      }
+    } else if (info && !info.failed) {
+      el('div', 'streams', box, tr('Not on a streaming service here.'));
+    }
+    titleButtons = titleActions(p, info);
+    st.titleButton = Math.min(st.titleButton, titleButtons.length - 1);
+    var row = el('div', 'buttons', box);
+    for (var b = 0; b < titleButtons.length; b++) {
+      var btn = el('span', 'tbtn', row);
+      if (titleButtons[b].symbol) sym(titleButtons[b].symbol, btn);
+      btn.appendChild(document.createTextNode(titleButtons[b].label));
+      btn.onclick = titleButtons[b].run;
+      hover(btn, Z.TITLE, b);
+    }
+    updateFocus();
   }
 
   function closeSheets() {
     setClass($('apps'), 'open', false);
     setClass($('browse'), 'open', false);
+    setClass($('titlebox'), 'open', false);
     browsing = null;
+    titlePick = null;
     setClass($('settings'), 'open', false);
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
@@ -1586,8 +1678,7 @@
       case Z.CARDS:
         if (st.cardButton >= 0) { hidePick(st.card, st.cardButton); return; }
         if (cards[st.card] && cards[st.card].more) { openBrowse(); return; }
-        var target = pickTarget(cards[st.card]);
-        if (target) launcher(target.app.id, target.app.title, target.params)();
+        if (cards[st.card]) openTitle(cards[st.card]);
         return;
       case Z.SHELF:
         if (shelf[st.shelf]) launcher(shelf[st.shelf].id, shelf[st.shelf].title)();
@@ -1599,7 +1690,10 @@
         if (others[st.grid]) launcher(others[st.grid].id, others[st.grid].title)();
         return;
       case Z.BROWSE:
-        openBrowsed();
+        if (browseTitles[st.browse]) openTitle(browseTitles[st.browse]);
+        return;
+      case Z.TITLE:
+        if (titleButtons[st.titleButton]) titleButtons[st.titleButton].run();
         return;
 
       case Z.SETTINGS:
@@ -1674,6 +1768,9 @@
       case Z.BROWSE:
         moveBrowse(dx, dy);
         return;
+      case Z.TITLE:
+        if (dx) st.titleButton = Math.max(0, Math.min(titleButtons.length - 1, st.titleButton + dx));
+        break;
 
       case Z.APPS:
         var g = st.grid + dx + dy * 5;
@@ -1715,6 +1812,7 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.TITLE) { closeTitle(); return; }
     if (st.zone === Z.BROWSE) { closeBrowse(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
@@ -1725,7 +1823,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.BROWSE))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.BROWSE || zone === Z.TITLE))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < 3 && !Data.hasKey()) return;   // the tabs are hidden without the picks
@@ -1737,6 +1835,7 @@
       else if (zone === Z.DRAWER) st.drawer = index;
       else if (zone === Z.APPS) st.grid = index;
       else if (zone === Z.BROWSE) st.browse = index;
+      else if (zone === Z.TITLE) st.titleButton = index;
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;
       else if (zone === Z.LANG) st.lang = index;

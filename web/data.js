@@ -764,6 +764,46 @@ var Data = (function () {
     });
   }
 
+  // MARK: - A title's box: its description, trailer and where it streams
+
+  /**
+   * What the title box shows (home.js): done(error, {overview, facts, trailer, streams}). facts is "2024 · Drama · 2h 5m";
+   * trailer a YouTube video id ('' for none); streams every service with it in the TV's country, each {name, app}, app
+   * the TV's app for it (or null). Its ratings come along too (rate), from the saved ones when it can.
+   */
+  function about(p, done) {
+    var videoLangs = I18N.base === 'en' ? 'en,null' : I18N.base + ',en,null';
+    tmdb('/' + p.kind + '/' + p.id + '?language=' + lang() + '&append_to_response=videos,watch/providers&include_video_language=' + videoLangs,
+      function (err, o) {
+        if (err) { done(err); return; }
+        var facts = [], date = o.release_date || o.first_air_date || '';
+        if (date) facts.push(date.slice(0, 4));
+        if (o.genres && o.genres.length) facts.push(genre(o.genres[0].name));
+        if (p.kind === 'movie' && o.runtime > 0) {
+          var h = Math.floor(o.runtime / 60), m = o.runtime % 60;
+          facts.push(h ? trf('{h}h {m}m', {h: h, m: m}) : trf('{m}m', {m: m}));
+        } else if (p.kind === 'tv' && o.number_of_seasons > 0) {
+          facts.push(plural('plural|one:{n} season|other:{n} seasons', o.number_of_seasons));
+        }
+        // The trailer: YouTube's, official first, in the TV's language before English.
+        var trailer = '', best = -1, vids = (o.videos && o.videos.results) || [];
+        for (var i = 0; i < vids.length; i++) {
+          var v = vids[i];
+          if (v.site !== 'YouTube' || !v.key || (v.type !== 'Trailer' && v.type !== 'Teaser')) continue;
+          var score = (v.type === 'Trailer' ? 4 : 0) + (v.official ? 2 : 0) + (v.iso_639_1 === I18N.base ? 1 : 0);
+          if (score > best) { best = score; trailer = v.key; }
+        }
+        // Where it streams in the TV's country: every service, and the TV's app for the ones it has.
+        var wp = o['watch/providers'], here = wp && wp.results && wp.results[REGION], flat = (here && here.flatrate) || [], streams = [];
+        for (var j = 0; j < flat.length; j++) {
+          var s = service(flat[j].provider_name, flat[j].provider_id);
+          streams.push({name: s ? s[4] : flat[j].provider_name, app: s && usable(s[1]) ? s[1] : null});
+        }
+        if (!p.app) for (var k = 0; k < streams.length && !p.app; k++) if (streams[k].app) p.app = streams[k].app;
+        rate(p, function () { done(null, {overview: o.overview || '', facts: facts.join(' · '), trailer: trailer, streams: streams}); });
+      });
+  }
+
   // MARK: - See more: the same titles past what the tabs show, a page at a time
 
   var BROWSE_PAGE = 12;   // 6 across, 2 rows of large posters
@@ -932,6 +972,7 @@ var Data = (function () {
     goodEnough: goodEnough,
     /** A See more title's details (which of the TV's apps has it), before it opens: done(error). */
     details: details,
+    about: about,
     image: function (path, size) { return path ? 'https://image.tmdb.org/t/p/' + (size || 'w1280') + path : ''; },
 
     /** Night at the location: from sunset to sunrise (the last forecast; without one, 6:00 and 18:00). */

@@ -308,16 +308,22 @@ var TV = (function () {
    */
   var NETFLIX_HUB = '11101200001';
 
-  function dialLaunch(name, done) {
-    post('/ws/apps/' + name, 8000, done);
+  function dialLaunch(name, done, body) {
+    post('/ws/apps/' + name, 8000, done, body);
+  }
+
+  /** The TV's YouTube app: the one listed under that name, or its usual id on recent Samsungs. */
+  function samsungYouTube() {
+    for (var id in samsungDial) if (samsungDial.hasOwnProperty(id) && samsungDial[id] === 'YouTube') return id;
+    return '9Ur5IzDKqV.TizenYouTube';
   }
 
   function hubLaunch(hubId, done) {
     post('/api/v2/applications/' + hubId, 30000, done);
   }
 
-  /** A POST to the TV's own server on port 8001 (DIAL and its REST API); done(ok). */
-  function post(path, timeout, done) {
+  /** A POST to the TV's own server on port 8001 (DIAL and its REST API), with an optional body; done(ok). */
+  function post(path, timeout, done, body) {
     var x = new XMLHttpRequest(), over = false;
     x.open('POST', 'http://127.0.0.1:8001' + path, true);
     x.timeout = timeout;
@@ -328,7 +334,7 @@ var TV = (function () {
     };
     x.ontimeout = x.onerror = function () { if (!over) { over = true; if (done) done(false); } };
     x.setRequestHeader('Content-Type', 'text/plain; charset=utf-8');
-    x.send('');
+    x.send(body || '');
   }
 
   function samsungLaunch(id, done) {
@@ -566,6 +572,32 @@ var TV = (function () {
       luna('luna://com.webos.applicationManager/launch', params ? {id: id, params: params} : {id: id}, function (res) {
         if (done) done(!!res);
       });
+    },
+
+    /**
+     * Plays a YouTube video (a trailer) in the TV's YouTube app; done(ok). Samsung: the app is handed the video as a
+     * casting phone does (its PAYLOAD), or through the TV's DIAL server where that fails. LG: YouTube's contentTarget.
+     */
+    youtube: function (videoId, done) {
+      var v = 'v=' + encodeURIComponent(videoId);
+      if (samsung) {
+        var dial = function () { dialLaunch('YouTube', done, v); };
+        try {
+          var data = new window.tizen.ApplicationControlData('PAYLOAD', [JSON.stringify({values: v})]);
+          var control = new window.tizen.ApplicationControl('http://tizen.org/appcontrol/operation/view', null, null, null, [data]);
+          window.tizen.application.launchAppControl(control, samsungYouTube(), function () { if (done) done(true); }, dial);
+        } catch (e) {
+          dial();
+        }
+        return;
+      }
+      if (webos) {
+        luna('luna://com.webos.applicationManager/launch', {id: 'youtube.leanback.v4', params: {contentTarget: 'https://www.youtube.com/tv?' + v}},
+          function (res) { if (done) done(!!res); });
+        return;
+      }
+      window.open('https://www.youtube.com/watch?' + v);   // the browser preview
+      if (done) done(true);
     },
 
     /** The antenna and HDMI inputs; `connected` when the TV says a device is on (when it tells). */

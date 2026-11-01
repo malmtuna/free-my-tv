@@ -543,6 +543,42 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .bcell.focus .poster::after { opacity: 1; }
 .bcell.focus .label { color: #FFF; }
 
+/* A title's box (OK on a pick or a See more title): its photo on the right, fading into a solid dark page, and on the
+   left its name, facts, description, where it streams and one row of buttons. */
+#titlebox { background: #121214; }
+#titlebox .photo { position: absolute; right: 0; top: 0; width: 1240px; height: 1080px; background-size: cover; background-position: center top; }
+#titlebox .photo::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: -webkit-linear-gradient(left, #121214, rgba(18, 18, 20, 0.55) 40%, rgba(18, 18, 20, 0) 75%);
+  background: linear-gradient(to right, #121214, rgba(18, 18, 20, 0.55) 40%, rgba(18, 18, 20, 0) 75%);
+}
+#titlebox .info { position: absolute; left: 120px; top: 170px; width: 900px; }
+#titlebox h1 { margin: 0; font-size: 64px; font-weight: 700; line-height: 1.12; max-height: 144px; overflow: hidden; }
+#titlebox .facts { margin-top: 18px; font-size: 28px; color: rgba(255, 255, 255, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#titlebox .overview { margin-top: 30px; font-size: 30px; line-height: 1.45; color: rgba(255, 255, 255, 0.86); max-height: 261px; overflow: hidden; }
+#titlebox .streams { margin-top: 26px; font-size: 26px; color: rgba(255, 255, 255, 0.62); }
+#titlebox .streams b { color: #FFF; font-weight: 600; }
+#titlebox .buttons { margin-top: 46px; width: 1700px; white-space: nowrap; }
+.tbtn {
+  display: inline-block;
+  margin-right: 18px;
+  padding: 16px 34px;
+  border-radius: 40px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #FFF;
+  font-size: 28px;
+  font-weight: 600;
+  -webkit-transition: -webkit-transform 0.15s, background-color 0.15s, color 0.15s;
+  transition: transform 0.15s, background-color 0.15s, color 0.15s;
+}
+.tbtn .sym { width: 28px; height: 28px; margin-right: 12px; vertical-align: -5px; }
+.tbtn.focus { background: #FFF; color: #1D1D1F; -webkit-transform: scale(1.06); transform: scale(1.06); }
+
 /* The See more card at the end of the picks: a dashed outline, so it doesn't read as one more title. */
 .card.seemore .img { background: rgba(255, 255, 255, 0.35); border: 3px dashed rgba(29, 29, 31, 0.3); box-sizing: border-box; }
 .night .card.seemore .img { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.4); }
