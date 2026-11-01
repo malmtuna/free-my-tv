@@ -960,7 +960,11 @@
 
   // MARK: - Trailer: YouTube's embedded player, full screen in the app, so Back comes straight back to the title box
 
-  var trailerFrame = null, trailerKey = '', trailerPlaying = false, trailerTimer = 0;
+  // The player is a page of its own on a website (github.com/malmtuna/fmtv-trailer): YouTube refuses embeds that can't
+  // say which site they're on, and an app on the TV has none. It plays ?v= and posts back {fmtv: 'ready' | 'state' |
+  // 'error'}; it takes {fmtv: 'play' | 'pause'}.
+  var TRAILER_PAGE = 'https://malmtuna.github.io/fmtv-trailer/', TRAILER_ORIGIN = 'https://malmtuna.github.io';
+  var trailerFrame = null, trailerKey = '', trailerPlaying = false, trailerMuted = false, trailerTimer = 0;
 
   function playTrailer(key) {
     closeTrailer();
@@ -971,31 +975,30 @@
     trailerFrame = el('iframe', '', holder);
     trailerFrame.setAttribute('allow', 'autoplay; encrypted-media');
     trailerFrame.setAttribute('allowfullscreen', '');
-    trailerFrame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(key) + '?autoplay=1&enablejsapi=1&rel=0&playsinline=1&controls=0&iv_load_policy=3';
-    // The player answers its page through postMessage once told it's listened to (YouTube's IFrame API, without its script).
-    trailerFrame.onload = function () { trailerCommand(null); };
+    trailerFrame.src = TRAILER_PAGE + '?v=' + encodeURIComponent(key);
     setClass(holder, 'open', true);
-    // No word from the player at all (a TV that blocks it): the YouTube app instead.
+    // No word from the player at all (no network, or a TV that blocks it): the YouTube app instead.
     trailerTimer = setTimeout(function () { if (!trailerPlaying) inYouTubeApp(); }, 12000);
   }
 
-  /** A message to the player: a command ('pauseVideo', 'playVideo'), or with none, that this page is listening. */
-  function trailerCommand(func) {
+  /** 'play' or 'pause', to the player page. */
+  function trailerCommand(what) {
     if (!trailerFrame || !trailerFrame.contentWindow) return;
-    var msg = func ? {event: 'command', func: func, args: []} : {event: 'listening', id: 1};
-    try { trailerFrame.contentWindow.postMessage(JSON.stringify(msg), '*'); } catch (e) {}
+    try { trailerFrame.contentWindow.postMessage(JSON.stringify({fmtv: what}), TRAILER_ORIGIN); } catch (e) {}
   }
 
   window.addEventListener('message', function (e) {
-    if (!trailerFrame || e.source !== trailerFrame.contentWindow) return;
+    if (!trailerFrame || e.source !== trailerFrame.contentWindow || e.origin !== TRAILER_ORIGIN) return;
     var data;
     try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch (x) { return; }
-    if (!data) return;
-    var state = data.event === 'onStateChange' ? data.info : data.info && data.info.playerState;
-    if (data.event === 'onError') { inYouTubeApp(); return; }   // embedding refused (101, 150, 152, 153) or a bad video
-    if (state === 1) { trailerPlaying = true; clearTimeout(trailerTimer); }
-    else if (state === 2) trailerPlaying = false;
-    else if (state === 0) closeTrailer();                          // it ended: back to the box
+    if (!data || !data.fmtv) return;
+    if (data.fmtv === 'error') { inYouTubeApp(); return; }   // embedding refused (101, 150, 152, 153) or a bad video
+    if (data.fmtv === 'ready') { clearTimeout(trailerTimer); return; }   // the player works: no falling back now
+    if (data.fmtv !== 'state') return;
+    trailerMuted = !!data.muted;   // the TV blocked sound on autoplay: OK turns it on
+    if (data.state === 1) { trailerPlaying = true; clearTimeout(trailerTimer); }
+    else if (data.state === 2) trailerPlaying = false;
+    else if (data.state === 0) closeTrailer();                // it ended: back to the box
   });
 
   /** YouTube wouldn't play it here: its app, as before (Back there stays in YouTube). */
@@ -1013,6 +1016,7 @@
     holder.innerHTML = '';   // removing the player stops it
     trailerFrame = null;
     trailerPlaying = false;
+    trailerMuted = false;
     if (st.zone === Z.TRAILER) { st.zone = Z.TITLE; updateFocus(); }
   }
 
@@ -1733,7 +1737,7 @@
         if (titleButtons[st.titleButton]) titleButtons[st.titleButton].run();
         return;
       case Z.TRAILER:
-        trailerCommand(trailerPlaying ? 'pauseVideo' : 'playVideo');   // OK pauses and plays
+        trailerCommand(trailerPlaying && !trailerMuted ? 'pause' : 'play');   // OK pauses and plays (with the sound on)
         return;
 
       case Z.SETTINGS:
