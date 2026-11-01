@@ -79,6 +79,8 @@ var Prefs = (function () {
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
+    /** The lowest IMDb score a pick may have (0: any). TMDB's score stands in until a pick's IMDb score is known. */
+    minRating: function () { return +pick('minRating', 6) || 0; },
     /** Picks per tab: 3 (as it was) up to 30. */
     cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 30 ? 30 : n; },
     /** Cartoons and anime out of the picks (Home Settings), or config.properties' hide_animation. */
@@ -426,13 +428,22 @@ var Data = (function () {
     return (cut > 0 ? t.slice(0, cut) : t).replace(/^\s+|\s+$/g, '');
   }
 
+  /**
+   * Rated well enough for the picks (Prefs.minRating): its IMDb score, or TMDB's until that's known. With neither (a new
+   * title, or too few votes), it stays.
+   */
+  function goodEnough(p) {
+    var min = Prefs.minRating(), score = p.imdbScore || p.tmdbScore;
+    return !min || !score || score >= min;
+  }
+
   /** This hour's picks (Prefs.cards()): movies ("movie"), shows ("tv") or both (null). */
   function now(kind) {
     var list = [];
     if (!KEY) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
-      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app)))) list.push(p);
+      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app))) && goodEnough(p)) list.push(p);
     }
     if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {}, n = Prefs.cards();
@@ -520,15 +531,16 @@ var Data = (function () {
     var key = Prefs.mdblistKey(), t = Date.now(), id = keyOf(p);
     if (!key) { done(); return; }
     var known = ratings[id];
-    if (known && t - known.at < RATED_FOR && t >= known.at) { p.ratings = known.text; done(); return; }
+    if (known && t - known.at < RATED_FOR && t >= known.at) { p.ratings = known.text; p.imdbScore = known.imdb || 0; done(); return; }
     mdblistScores(p, key, function (s) {
       // Nothing found: nothing this time, and no asking again until the list is made again (never in a loop).
       var parts = [];
       if (s && s.imdb) parts.push('IMDb ' + s.imdb);
       if (s && s.rt) parts.push('RT ' + s.rt);
       p.ratings = parts.join('  ·  ');
+      p.imdbScore = (s && parseFloat(s.imdb)) || 0;   // for Prefs.minRating
       for (var k in ratings) if (ratings.hasOwnProperty(k) && !(t - ratings[k].at < RATED_FOR)) delete ratings[k];
-      ratings[id] = {text: p.ratings, at: t};
+      ratings[id] = {text: p.ratings, imdb: p.imdbScore, at: t};
       store('ratings', ratings);
       done();
     });
@@ -599,7 +611,8 @@ var Data = (function () {
   function addPick(list, o, kind) {
     if (!o.backdrop_path) return;
     if (Prefs.hideAnimation() && animated(o)) return;
-    list.push({id: o.id, kind: kind, title: kind === 'movie' ? o.title : o.name, backdrop: o.backdrop_path, poster: o.poster_path || '', meta: '', app: null, detailed: false});
+    list.push({id: o.id, kind: kind, title: kind === 'movie' ? o.title : o.name, backdrop: o.backdrop_path, poster: o.poster_path || '', meta: '', app: null, detailed: false,
+      tmdbScore: o.vote_count >= 20 ? o.vote_average : 0});   // a handful of votes says little
   }
 
   function keyOf(p) { return p.kind + ':' + p.id; }

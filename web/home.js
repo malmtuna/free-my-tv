@@ -306,6 +306,12 @@
     }
   }
 
+  /** An input the TV says has nothing switched on (as the drawer shows it). Not told: plugged in. */
+  function unplugged(id) {
+    for (var i = 0; i < inputs.length; i++) if (inputs[i].id === id) return !inputs[i].connected;
+    return false;
+  }
+
   /** An input renamed in Home Settings: the shelf and the drawer show its new name. */
   function inputsRenamed() {
     apps = withInputs(apps);
@@ -585,6 +591,7 @@
       t.style.width = tw + 'px';
       t.style.height = th + 'px';
       face(shelf[i], t, wordFit(shelf[i].title, tw, 30));
+      if (shelf[i].input && unplugged(shelf[i].id)) t.className += ' off';
       hover(t, Z.SHELF, i);
     }
     // More apps than fit: a small arrow inside the glass's edge on each side that has more, where no tile reaches
@@ -790,6 +797,9 @@
   /** Picks per tab: a few steps up to 30, so the arrows needn't go one by one. */
   var CARD_COUNTS = [3, 4, 5, 6, 8, 10, 15, 20, 25, 30];
 
+  /** The lowest IMDb rating a pick may have: 0 is any. */
+  var MIN_RATINGS = [0, 5, 6, 6.5, 7, 7.5, 8];
+
   function settingRows() {
     var unit = Prefs.temperature(), theme = Prefs.theme();
     var auto = tr('Automatic'), picked = pickedLanguage();
@@ -806,6 +816,8 @@
         step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
       {label: tr('Picks per tab'), value: String(Prefs.cards()),
         step: function (d) { cycle('cards', CARD_COUNTS, Prefs.cards(), d); renderCards(); Data.refresh(); }},
+      {label: tr('Lowest IMDb rating'), value: Prefs.minRating() ? String(Prefs.minRating()) : tr('rating|Any'),
+        step: function (d) { cycle('minRating', MIN_RATINGS, Prefs.minRating(), d); renderCards(); Data.refresh(); }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),

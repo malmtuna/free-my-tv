@@ -362,7 +362,6 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   top: 854px;
   height: 126px;
   border-radius: 22px;
-  overflow: hidden;
   color: #FFF;
   box-shadow: 0 4px 22px rgba(0, 0, 0, 0.14);
   -webkit-transition: -webkit-transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.2s, opacity 0.3s;
@@ -394,13 +393,17 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   top: 0;
   right: 0;
   height: 50%;
+  border-radius: 22px 22px 0 0;   /* the tile doesn't clip: its focus ring is drawn outside it */
   background: -webkit-linear-gradient(top, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
   background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
   opacity: 0;
   -webkit-transition: opacity 0.17s;
   transition: opacity 0.17s;
 }
-.tile.focus { -webkit-transform: scale(1.2); transform: scale(1.2); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34); z-index: 2; }
+.tile.focus { -webkit-transform: scale(1.1); transform: scale(1.1); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34); z-index: 2; }
+/* An input with nothing switched on (the drawer's .off): faded, until it has focus. */
+.tile.off { opacity: 0.4; }
+.tile.off.focus { opacity: 1; }
 .tile.focus::after { opacity: 1; }
 .night .tile { box-shadow: 0 4px 22px rgba(0, 0, 0, 0.3); }
 .night .tile.focus { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6); }
@@ -628,6 +631,28 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   z-index: 50;
 }
 #toast.on { opacity: 1; -webkit-transform: translate(-50%, 0); transform: translate(-50%, 0); }
+
+/* MARK: - Focus ring: a frame with a gap around what has focus, so it shows from across the room. Dark by day, white at
+   night. A border, not a shadow: the .flat and .lite TVs, which drop the shadows, keep it. */
+.tile::before, .card::before, .key::before, .round::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  right: -9px;
+  bottom: -9px;
+  border: 3px solid #1D1D1F;
+  opacity: 0;
+  pointer-events: none;
+  -webkit-transition: opacity 0.17s;
+  transition: opacity 0.17s;
+}
+.tile::before { border-radius: 31px; }
+.card::before { bottom: auto; height: 460px; border-radius: 27px; }   /* around the photo (442 high), not the title under it */
+.key::before { border-radius: 29px; }
+.round::before { border-radius: 50%; }
+.tile.focus::before, .card.focus::before, .key.focus::before, .round.focus::before { opacity: 1; }
+.night .tile::before, .night .card::before, .night .key::before, .night .round::before { border-color: #FFF; }
 
 /* The Magic Remote's pointer: no text selection, no outlines. */
 * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
