@@ -433,7 +433,9 @@ var Data = (function () {
    * title, or too few votes), it stays.
    */
   function goodEnough(p) {
-    var min = Prefs.minRating(), score = p.imdbScore || p.tmdbScore;
+    var min = Prefs.minRating(), shown = /IMDb (\d+(\.\d+)?)/.exec(p.ratings || '');
+    // Picks and ratings saved before the filter have only the shown text ("IMDb 5.8 · RT 40%"): the score is in it.
+    var score = p.imdbScore || (shown && parseFloat(shown[1])) || p.tmdbScore;
     return !min || !score || score >= min;
   }
 
@@ -531,7 +533,13 @@ var Data = (function () {
     var key = Prefs.mdblistKey(), t = Date.now(), id = keyOf(p);
     if (!key) { done(); return; }
     var known = ratings[id];
-    if (known && t - known.at < RATED_FOR && t >= known.at) { p.ratings = known.text; p.imdbScore = known.imdb || 0; done(); return; }
+    if (known && t - known.at < RATED_FOR && t >= known.at) {
+      var was = /IMDb (\d+(\.\d+)?)/.exec(known.text || '');   // saved before the filter: only the text has the score
+      p.ratings = known.text;
+      p.imdbScore = known.imdb || (was && parseFloat(was[1])) || 0;
+      done();
+      return;
+    }
     mdblistScores(p, key, function (s) {
       // Nothing found: nothing this time, and no asking again until the list is made again (never in a loop).
       var parts = [];
@@ -576,6 +584,7 @@ var Data = (function () {
       }
       if (p.service && p.app) parts.push(p.service);
       p.meta = parts.join(' · ');
+      if (o.vote_count >= 20) p.tmdbScore = o.vote_average;   // as addPick: for Prefs.minRating until IMDb's is known
       title(p, o, function () {
         rate(p, function () {
           p.detailed = true;
