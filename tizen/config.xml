@@ -7,12 +7,29 @@
     <content src="index.html"/>
     <icon src="icon.png"/>
     <feature name="http://tizen.org/feature/screen.size.all"/>
+    <!-- No <feature> for web.service on purpose: on a 2015 TV that doesn't have it, a required feature would make the
+         whole app refuse to install. The service below simply never starts there, and the Home button stays the TV's. -->
     <access origin="*" subdomains="true"/>
     <tizen:privilege name="http://tizen.org/privilege/internet"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/network.public"/>
     <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.info"/>
     <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
     <tizen:privilege name="http://tizen.org/privilege/tv.window"/>
+    <!-- The background helper (watch.js) that gives the Home button back to Free My TV. Its id is the app's own
+         with "Watch" on the end: web/tv.js starts it by that name. -->
+    <tizen:service id="FreeMyTVio.FreeMyTVWatch" on-boot="true" auto-restart="true">
+        <tizen:content src="watch.js"/>
+        <tizen:name>Free My TV Watch</tizen:name>
+        <tizen:description>Brings Free My TV back when the Home button opens Samsung's own home.</tizen:description>
+    </tizen:service>
     <tizen:profile name="tv-samsung"/>
-    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
+    <!-- Opening Free My TV while it is already running brings it straight back instead of reloading it, which is
+         what the helper asks for when it takes the screen back. -->
+    <tizen:app-control>
+        <tizen:src name="index.html" reload="disable"/>
+        <tizen:operation name="http://samsung.com/appcontrol/operation/eden_resume"/>
+    </tizen:app-control>
+    <!-- Background support keeps the page alive while another app (or Samsung's home) is on screen. -->
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="enable" encryption="disable" install-location="auto" hwkey-event="enable"/>
 </widget>

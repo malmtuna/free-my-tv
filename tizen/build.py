@@ -7,7 +7,8 @@
     python3 tizen/build.py --config other.properties
     python3 tizen/build.py --generic       # without config.properties: the TV's time zone picks the city (releases)
 
-The same home screen as on LG (web/), with tizen/config.xml and tizen/icon.png, in a zip as Tizen Studio makes it.
+The same home screen as on LG (web/), with tizen/config.xml, tizen/icon.png and tizen/watch.js (the background helper
+that gives the Home button back to the app), in a zip as Tizen Studio makes it.
 TVs only install signed packages. TizenBrew Installer signs it with the person's Samsung certificate on 2023 and
 newer TVs; --sign uses `tizen package` (Tizen Studio, or Samsung's tizen-sdk-skills) with a profile made there.
 """
@@ -66,11 +67,16 @@ def build(preview, config, profile):
     app_id = re.search(r'<tizen:application id="([^"]+)"', manifest).group(1)
     version = re.search(r'<widget [^>]*version="([^"]+)"', manifest).group(1)
     app = webapp.files(config, 'tizen/build.py')
-    for name in ('config.xml', 'icon.png'):
+    for name in ('config.xml', 'icon.png', 'watch.js'):
         with open(os.path.join(ROOT, 'tizen', name), 'rb') as f:
             app[name] = f.read()
 
-    with zipfile.ZipFile(WGT, 'w', zipfile.ZIP_DEFLATED) as z:
+    try:
+        package = zipfile.ZipFile(WGT, 'w', zipfile.ZIP_DEFLATED)
+    except PermissionError:
+        sys.exit('%s can\'t be written: another program has it open (Tizen Studio? a zip viewer? a syncing folder?). '
+                 'Close it or delete the file, then build again.' % os.path.basename(WGT))
+    with package as z:
         for path in sorted(app):
             z.writestr(path, app[path])
     if profile:

@@ -1178,6 +1178,12 @@
     }
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
     if (TV.canOpenSettings) rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
+    // Samsung: the Home button opens Samsung's own home, which no app may take. The background helper puts this
+    // screen back in front of it; off, Samsung's home stays (the helper stands down).
+    if (TV.name === 'tizen') {
+      rows.push({label: tr('Home button'), toggle: Prefs.homeGuard(),
+        step: function () { Prefs.set('homeButton', !Prefs.homeGuard()); TV.homeGuard(Prefs.homeGuard()); }});
+    }
     return rows;
   }
 
@@ -1572,7 +1578,7 @@
 
   // MARK: - About this TV: what to quote when reporting a problem, without LG's or Samsung's slow menus
 
-  function renderAbout(info) {
+  function renderAbout(info, home) {
     var box = $('about').firstChild;
     box.innerHTML = '';
     el('div', 'title', box, tr('About this TV'));
@@ -1584,6 +1590,13 @@
     for (var i = 0; i < rows.length; i++) {
       var row = el('div', 'row', holder), label = el('span', '', row, rows[i][0]);
       fitValue(row, label, el('span', 'value', row, info ? rows[i][1] || tr('Unavailable') : '…'));
+    }
+    // Samsung: whether the background helper is up and holding the Home button (Unavailable: it isn't answering,
+    // which is the first thing to look at when the Home button doesn't come back).
+    if (TV.name === 'tizen') {
+      var help = el('div', 'row', holder), helpLabel = el('span', '', help, tr('Home button'));
+      var helpValue = el('span', 'value', help, home === null ? '…' : home === 'on' ? tr('On') : home === 'off' ? tr('Off') : tr('Unavailable'));
+      fitValue(help, helpLabel, helpValue);
     }
     el('div', 'hint', box, tr('Back closes.'));
   }
@@ -1598,10 +1611,13 @@
   function openAbout() {
     setClass($('settings'), 'open', false);
     st.zone = Z.ABOUT;
-    renderAbout(null);
+    var info = null, home = TV.name === 'tizen' ? null : '';   // null: the helper hasn't answered yet
+    function paint() { if (st.zone === Z.ABOUT) renderAbout(info, home); }
+    renderAbout(null, home);
     setClass($('about'), 'open', true);
     updateFocus();
-    TV.about(function (info) { if (st.zone === Z.ABOUT) renderAbout(info); });
+    TV.about(function (got) { info = got; paint(); });
+    if (TV.name === 'tizen') TV.homeState(function (state) { home = state; paint(); });
   }
 
   function closeAbout() {
@@ -2155,6 +2171,8 @@
   checkNight();   // now, from the last forecast: not after the TV lists its apps, with the day look until then
   // LG's screensaver waits only when ours will show: not under a sheet (ours waits there), and not without photos.
   TV.holdScreenSaver(function () { return !sheetOpen() && (saverMode() === 'clock' || saverPhotos().length > 0); });
+  // Samsung: starts the helper (watch.js) that keeps the Home button here, unless Home Settings says otherwise.
+  TV.homeGuard(Prefs.homeGuard());
   fit();
   renderTop();
   applyDim();

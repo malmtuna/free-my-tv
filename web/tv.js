@@ -426,6 +426,62 @@ var TV = (function () {
     }
   }
 
+  // MARK: - The Home button (Samsung)
+
+  // Samsung keeps the Home button: it opens Samsung's own home, and no app can register for it (Android TV is the
+  // other way round, where Free My TV is the home app). A helper in this package (watch.js, a Tizen web service)
+  // watches Free My TV's own place on the screen and opens it again when nothing else took it. So Home lands here,
+  // after a moment of Samsung's screen. The helper runs in its own process, so a frozen page or a heavy app can't
+  // stop it; Home Settings' Home button tells it to stand down.
+  var HELPER_PORT = 8131;
+
+  /** One command to the helper, over its port; done(text) with null when it doesn't answer. */
+  function helperGet(path, done) {
+    var x = null;
+    try {
+      x = new XMLHttpRequest();
+      x.open('GET', 'http://127.0.0.1:' + HELPER_PORT + '/' + path, true);
+      x.timeout = 1500;
+    } catch (e) {
+      if (done) done(null);
+      return;
+    }
+    var over = false;
+    function finish(text) { if (!over) { over = true; if (done) done(text); } }
+    x.onreadystatechange = function () {
+      if (x.readyState === 4) finish(x.status === 200 ? x.responseText : null);
+    };
+    x.ontimeout = x.onerror = function () { finish(null); };
+    try { x.send(); } catch (e) { finish(null); }
+  }
+
+  /**
+   * Gives the Home button to Free My TV (`on`) or back to the TV: starts the helper, which keeps the setting. Both
+   * ways are tried: the port answers when it is up, the app control starts it when it isn't.
+   */
+  function homeGuard(on) {
+    if (!samsung) return;
+    var cmd = on ? 'on' : 'off';
+    helperGet(cmd);
+    try {
+      var data = new window.tizen.ApplicationControlData('cmd', [cmd]);
+      var control = new window.tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service', null, null, null, [data]);
+      window.tizen.application.launchAppControl(control, self + 'Watch', function () {}, function () {});
+    } catch (e) {
+      try { window.tizen.application.launch(self + 'Watch'); } catch (e2) {}
+    }
+  }
+
+  /** Whether the helper is up and holding the Home button: done('on'), done('off'), or done('') when it won't say. */
+  function homeState(done) {
+    if (!samsung) { done(''); return; }
+    helperGet('state', function (text) {
+      var info = null;
+      try { info = JSON.parse(text); } catch (e) {}
+      done(info && typeof info.on === 'boolean' ? (info.on ? 'on' : 'off') : '');
+    });
+  }
+
   // MARK: - About this TV
 
   /** done({model, firmware, system, version, ip}), with '' for what the TV doesn't tell. */
@@ -633,6 +689,12 @@ var TV = (function () {
       if (samsung) samsungSettings(done);
       else this.launch('com.palm.app.settings', null, done);
     },
+
+    /** Samsung: gives the Home button to Free My TV (on) or back to the TV's own home. */
+    homeGuard: homeGuard,
+
+    /** Samsung: 'on', 'off', or '' when the background helper doesn't answer (About this TV). */
+    homeState: homeState,
 
     /** The TV's model, firmware, system, IP address and this app's version, for About this TV. */
     about: about,

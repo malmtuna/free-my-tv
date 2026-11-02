@@ -128,6 +128,8 @@ var Prefs = (function () {
       this.set('servicesOff', list);
     },
     openPicks: function () { return pick('openPicks', CONFIG.openPicksIn === 'nuvio' ? 'nuvio' : 'apps'); },
+    /** Samsung: the Home button comes back to Free My TV instead of staying on Samsung's home (the helper does it). */
+    homeGuard: function () { return pick('homeButton', true) !== false; },
     set: function (name, value) { v[name] = value; save(); this.version++; },
     setCoin: function (i, on) {
       var c = (pick('coins', null) || [true, true, true, true]).slice();

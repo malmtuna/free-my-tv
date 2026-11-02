@@ -144,7 +144,9 @@ stays, and Free My TV opens with a long press of a number key.
 ## Installing it on a Samsung TV (Tizen)
 
 On Samsung it's an app too (Tizen 2.3+: 2015 and newer, one 2015 TV reported, #317; TizenBrew needs 2017 and newer), installed through Samsung's
-Developer Mode; Samsung's home screen stays. Two ways:
+Developer Mode. Samsung's home screen stays underneath, but the app's background helper gives it back the Home button:
+Home, or leaving an app, lands on Free My TV again after a moment of Samsung's screen (*Home Settings* → *Home button*
+turns that off, and leaves Samsung's home as it was). Two ways:
 
 - **The release, no tools:** TizenBrew Installer (github.com/reisxd/TizenBrewInstaller) installs the latest GitHub
   release when they type `simbasjungles/free-my-tv`, and on 2023+ TVs signs it with their Samsung account. That build
@@ -193,7 +195,11 @@ Developer Mode; Samsung's home screen stays. Two ways:
    `0 vd_applist`). Tizen 2.3 (a 2015 UE48JU6075) answers it on port 7011, one WebSocket connection per launch
    (`ws://<IP>:7011/devtools/page/1`; `0 kill FreeMyTVio` first to launch it again), and `0 applist` lists its web
    apps (not the native ones, below).
-8. **Tell them:** *Autorun Last App* in the TV's settings (under Start Screen Options; where it is changes by year)
+8. **Tell them:** the Home button now comes back to Free My TV (a background helper does it, with a moment of
+   Samsung's own screen first: *Home Settings* → *Home button* turns it off), so *Autorun Last App* matters less. If it
+   doesn't come back, *Home Settings* → *About this TV* says whether the helper is running (*Home button*: On, Off or
+   Unavailable), and `python3 tizen/install.py <IP> --log` prints its lines where the TV allows a shell (some retail
+   sets answer only Tizen's own `0 …` commands, and `--log` says so). *Autorun Last App* in the TV's settings (under Start Screen Options; where it is changes by year)
    makes the TV turn on into Free My TV on a 2017 set; 2019 and 2020 sets don't reopen Developer Mode apps with it
    (#356), so there they move it to the first place in the Home bar. A Tizen Web Service declared `on-boot` that
    reopens it when the TV comes on worked on a 2019 RU7099 and a 2020 Q80T (a fork's opt-in build, #356), but only
@@ -578,3 +584,20 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   (`tools/make_zones.py`, from the tz database) turns the TV's time zone into the city, the currency and the region.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).
+- Samsung's Home button (`TV.homeGuard` in `web/tv.js`, `tizen/watch.js`): Tizen keeps the Home key, and no app may
+  register for it, so Free My TV gets it back the other way. `watch.js` is a Tizen web service
+  (`FreeMyTVio.FreeMyTVWatch`, the app's id with `Watch` on the end, started by the page and kept by `auto-restart`)
+  that watches Free My TV's own place on the screen: `GET /api/v2/applications/FreeMyTVio.FreeMyTV` on 8001 (which
+  answers only callers on the TV) says when it is no longer visible. It then waits a moment and checks `/api/v2/`'s
+  `PowerState` (a TV switched off mustn't be switched back on) and the running apps; an app the person opened (a new
+  id, `newApps`) is left alone until it closes, and anything else means the Home button did it: Free My TV is opened
+  again with Samsung's `eden_resume` app control. Home, and leaving an app, land back here after about a second of
+  Samsung's screen. That app's own visibility is the only thing that can be asked: on a 2026 TQ65S85H (Tizen 10) the
+  status service answers for store apps and ours and 404s for Samsung's whole namespace, so "is the home on screen"
+  has no answer there (`HOMES` only helps recognise one among the running apps). It stands down when *Home Settings* →
+  *Home button* is off (`Prefs.homeGuard`, on by default), after eight tries in a minute, and after four tries that
+  never show it on screen. `background-support="enable"` keeps the page alive under another app. Its log is at
+  `http://127.0.0.1:8131/log` on the TV (port 8131; 8130 is Skylight's), and `python3 tizen/install.py <IP> --log`
+  prints it from the TV's own log. The idea, and the app-control names, are Skylight's
+  (github.com/SaudSatopay/skylight-tizen, MIT); it is why `tizen/build.py` packs `watch.js` and why the widget has
+  `application.info`.
