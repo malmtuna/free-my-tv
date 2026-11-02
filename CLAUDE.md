@@ -584,23 +584,22 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   (`tools/make_zones.py`, from the tz database) turns the TV's time zone into the city, the currency and the region.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).
-- Samsung's Home button (`TV.homeGuard` in `web/tv.js`, `tizen/watch.js`): Tizen keeps the Home key, and no app may
-  register for it, so Free My TV gets it back the other way. `watch.js` is a Tizen web service
-  (`FreeMyTVio.FreeMyTVWatch`, the app's id with `Watch` on the end, started by the page and kept by `auto-restart`)
-  that watches Free My TV's own place on the screen: `GET /api/v2/applications/FreeMyTVio.FreeMyTV` on 8001 (which
-  answers only callers on the TV) says when it is no longer visible. It then waits a moment and checks `/api/v2/`'s
-  `PowerState` (a TV switched off mustn't be switched back on), and asks the store apps that are running
-  (`appsToAsk`: ids outside Samsung's and Tizen's namespaces, at most 12) whether one of them has the screen: one
-  that does was opened by the person and is followed until it lets go; anything else means the Home button did it,
-  and Free My TV is opened again with Samsung's `eden_resume` app control. Home, and leaving an app, land back here
-  after about a second of Samsung's screen. That app's own visibility is the only thing that can be asked: on a 2026
-  TQ65S85H (Tizen 10) the status service answers for store apps and ours and 404s for Samsung's whole namespace, so
-  "is the home on screen" has no answer there (`HOMES` only helps recognise one among the running apps; a new
-  *running* system process must never count as an app, or the helper follows it forever). It stands down when *Home
-  Settings* → *Home button* is off (`Prefs.homeGuard`, on by default), after eight tries in a minute, and after four
-  tries that never show it on screen. `background-support="enable"` keeps the page alive under another app. Port 8131
-  (8130 is Skylight's) carries its state: `http://<TV IP>:8131/state` and `/log` are readable from the network (they
-  are how a TV that won't give a shell is debugged), while the `on`/`off`/`pause` commands are taken only from the TV
-  itself. The idea, and the app-control names, are Skylight's
-  (github.com/SaudSatopay/skylight-tizen, MIT); it is why `tizen/build.py` packs `watch.js` and why the widget has
-  `application.info`.
+- Samsung's Home button (`TV.homeGuard`/`TV.setVisible` in `web/tv.js`, `tizen/watch.js`): Tizen keeps the Home key,
+  and no app may register for it, so Free My TV gets it back the other way. `watch.js` is a Tizen web service
+  (`FreeMyTVio.FreeMyTVWatch`, the app's id with `Watch` on the end, started by the page and kept by `auto-restart`),
+  and the page drives it: on every visibilitychange it posts `/here` or `/away?app=<id>` to port 8131, `<id>` being the
+  app it is opening (`TV.launch`/`TV.youtube`/`TV.settings` set it; the inputs and TV Settings go as
+  `org.tizen.tv-viewer`/`org.tizen.menu`). That is the only reliable word on whether Free My TV has the screen: the
+  TV's status API reports `visible: false` for our own web app even with it in front (2026 TQ65S85H, Tizen 10), so
+  watching the app's own visibility never fires. On an away the helper waits a moment, checks `/api/v2/`'s
+  `PowerState` (a TV switched off mustn't be switched back on), follows the app the page named while
+  `/api/v2/applications/<id>` says it is visible, and otherwise opens Free My TV again with Samsung's `eden_resume`
+  app control; the TV's own settings and inputs (no such answer) are left alone until the page is back. That API
+  answers for store apps and 404s for Samsung's whole namespace, and a *running* system process must never count as an
+  app (`isSystem`). Home, and leaving an app, land back here after about a second of Samsung's screen. It stands down
+  when *Home Settings* → *Home button* is off (`Prefs.homeGuard`, on by default), after eight tries in a minute, and
+  after four tries that never bring the page back. `background-support="enable"` keeps the page alive under another
+  app, which is what lets it say `away` as it is covered. Port 8131 (8130 is Skylight's) also serves `/state` and
+  `/log` for debugging; the commands are taken only from the TV itself. The idea, and the app-control names, are
+  Skylight's (github.com/SaudSatopay/skylight-tizen, MIT); it is why `tizen/build.py` packs `watch.js` and why the
+  widget has `application.info`.

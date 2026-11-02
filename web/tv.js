@@ -434,6 +434,7 @@ var TV = (function () {
   // after a moment of Samsung's screen. The helper runs in its own process, so a frozen page or a heavy app can't
   // stop it; Home Settings' Home button tells it to stand down.
   var HELPER_PORT = 8131;
+  var launching = '';   // the app this page is opening, so the helper doesn't come back over it
 
   /** One command to the helper, over its port; done(text) with null when it doesn't answer. */
   function helperGet(path, done) {
@@ -480,6 +481,21 @@ var TV = (function () {
       try { info = JSON.parse(text); } catch (e) {}
       done(info && typeof info.on === 'boolean' ? (info.on ? 'on' : 'off') : '');
     });
+  }
+
+  /**
+   * The page's own place on the screen, which is the one thing the TV's status API won't tell it: `visible` stays
+   * false for a web app even while it is in front (2026 S85H, Tizen 10). So the page says when it is hidden, and
+   * which app it is opening, and the helper takes it from there.
+   */
+  function setVisible(visible) {
+    if (!samsung) return;
+    if (visible) {
+      launching = '';
+      helperGet('here');
+      return;
+    }
+    helperGet('away' + (launching && launching.indexOf('source:') !== 0 ? '?app=' + encodeURIComponent(launching) : ''));
   }
 
   // MARK: - About this TV
@@ -617,6 +633,7 @@ var TV = (function () {
     /** Opens an app (or an input); done(ok). */
     launch: function (id, params, done) {
       if (samsung) {
+        launching = id;   // so the helper, once this page is hidden, knows an app took the screen
         if (id.indexOf('source:') === 0) samsungSource(id, done);
         else samsungLaunch(id, done);
         return;
@@ -637,6 +654,7 @@ var TV = (function () {
     youtube: function (videoId, done) {
       var v = 'v=' + encodeURIComponent(videoId);
       if (samsung) {
+        launching = samsungYouTube();
         var dial = function () { dialLaunch('YouTube', done, v); };
         try {
           var data = new window.tizen.ApplicationControlData('PAYLOAD', [JSON.stringify({values: v})]);
@@ -686,12 +704,15 @@ var TV = (function () {
 
     /** The TV's own settings; done(ok). */
     settings: function (done) {
-      if (samsung) samsungSettings(done);
+      if (samsung) { launching = 'org.tizen.menu'; samsungSettings(done); }
       else this.launch('com.palm.app.settings', null, done);
     },
 
     /** Samsung: gives the Home button to Free My TV (on) or back to the TV's own home. */
     homeGuard: homeGuard,
+
+    /** Samsung: this page's own place on the screen, which the TV won't report (see setVisible). */
+    setVisible: setVisible,
 
     /** Samsung: 'on', 'off', or '' when the background helper doesn't answer (About this TV). */
     homeState: homeState,

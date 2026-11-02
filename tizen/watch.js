@@ -6,24 +6,23 @@
  * TV, where Free My TV is the home app). This service stands in for that, from its own process, so a frozen page
  * under a heavy app doesn't stop it.
  *
- * It asks the TV's own services (port 8001, which answers only callers on the TV itself):
- *   /api/v2/applications/<app id>  { running, visible } - and this is the catch: on a 2026 set (TQ65S85H, Tizen 10)
- *                                  it answers for store apps and ours, and 404s for Samsung's whole namespace, so
- *                                  "is Samsung's home on screen" has no answer. Our own app it does answer, so that
- *                                  is what it watches: when Free My TV stops being visible, it looks at the store
- *                                  apps that are running; one of them being on screen means the person opened it,
- *                                  and it waits until that one lets go. Anything else means the Home button did it.
- *   /api/v2/                       the device, whose PowerState tells standby from the Home button, so a TV turned
- *                                  off isn't switched back on.
+ * The page tells it the two things the TV won't:
+ *   /here            the page is on screen (it says so on every visibilitychange).
+ *   /away?app=<id>   the page lost the screen, and which app it was opening (TV Settings and the inputs have
+ *                    no queryable id and are passed as org.tizen.menu / org.tizen.tv-viewer).
+ * The TV's own services (port 8001, which answers only callers on the TV) supply the rest:
+ *   /api/v2/applications/<id>  { running, visible }: it answers for store apps, so the app the person opened is
+ *                              followed until it is no longer visible, and Free My TV then comes back.
+ *   /api/v2/                   PowerState, so a TV switched off isn't switched back on.
+ * Our own app it will NOT report as visible: on a 2026 S85H (Tizen 10) `visible` stays false for a web app even
+ * with it in front, which is why the page, not the TV, says when Free My TV has the screen.
  *
  * When it decides the Home button was pressed (or an app closed), it opens Free My TV again through Samsung's
- * `eden_resume` app control, so it resumes instead of reloading. Home, and leaving an app, then land here after a
- * second or so of Samsung's screen. The idea, and the app-control names, are Skylight's
- * (github.com/SaudSatopay/skylight-tizen, MIT), which does the same for its own home screen.
+ * `eden_resume` app control, so it resumes instead of reloading. The idea, and the app-control names, are
+ * Skylight's (github.com/SaudSatopay/skylight-tizen, MIT), which does the same for its own home screen.
  *
- * The home screen turns it off (Home Settings > Home button) over its port and as a service request. Its state and
- * log are also readable from the same network at http://<TV IP>:8131/state (read-only: the commands below are only
- * taken from the TV itself), which is the first place to look when the Home button doesn't come back.
+ * The home screen turns it off (Home Settings > Home button) over its port and as a service request. Its state is
+ * served at /state (readable from the TV; the commands are only taken from the TV itself).
  */
 'use strict';
 
@@ -35,31 +34,17 @@ var GAP_MS = 6000;        // between two attempts: the TV needs a moment to brin
 var AWAY_MS = 900;        // off screen for longer than this counts as having left it
 var BURST = 8;            // attempts in a minute that leave us still off screen: back off
 var PAUSE_MS = 120000;
-var BLIND = 4;            // attempts in a row without ever seeing ourselves on screen: stand down
+var BLIND = 4;            // attempts in a row that never bring the page back: stand down
 var MAX_QUERIES = 12;     // store apps to ask about in one pass
 var LOG_MAX = 80;
 
-// Samsung's own screens, by the names its firmwares give them: an input, its menu, and the home in its several names.
+// Samsung's own screens: an input, its menu. Neither can be asked about, so a page that opened one is left alone.
 var TAKEN = ['org.tizen.tv-viewer', 'org.tizen.menu'];
-var HOMES = [
-  'com.samsung.tv.coba.newhome',
-  'com.samsung.tv.coba.newhome.native',
-  'com.samsung.tv.home.mainhub',
-  'com.samsung.tv.home.apps',
-  'com.samsung.tv.home',
-  'com.samsung.tv.homescreen',
-  'com.samsung.tv.smarthub',
-  'com.samsung.tv.home.sidebar',
-  'com.samsung.tv.csfs',
-  'com.samsung.tv.STVirtualHomeApp',
-  'org.tizen.homescreen',
-  'HEPsqFNie0.tvplusstandalone'   // TV Plus, which the TV likes to open at power-on
-];
 
 var lines = [];
-var guard = { on: true, pausedUntil: 0, busy: false, since: '', timer: null, seen: false, gone: 0,
-              lastAttempt: 0, attempts: [], launches: 0, watch: '',
-              last: { self: '', power: '', apps: 0, screen: '', action: '' } };
+var guard = { on: true, pausedUntil: 0, busy: false, since: '', timer: null, here: true, awayAt: 0,
+              lastAttempt: 0, attempts: [], launches: 0, watch: '', watchedSeen: false,
+              last: { power: '', apps: 0, screen: '', action: 'starting' } };
 
 function log(text) {
   var t = new Date();
@@ -85,7 +70,7 @@ function get(port, path, done) {
   req.on('error', function () { finish(0, ''); });
 }
 
-/** The TV's own status for one app: { running, visible }, or null where it won't say (Samsung's own apps, mostly). */
+/** The TV's own status for one app: { running, visible }, or null where it won't say (Samsung's own screens). */
 function appState(id, done) {
   get(8001, '/api/v2/applications/' + id, function (status, body) {
     var info = null;
@@ -123,7 +108,7 @@ function runningIds(done) {
 /** Whether an id is the TV's own machinery rather than an app the person opened. */
 function isSystem(id) {
   return /^(com\.samsung\.|org\.tizen\.|com\.sausng\.)/i.test(id) || /tvplus/i.test(id) ||
-         HOMES.indexOf(id) >= 0 || TAKEN.indexOf(id) >= 0;
+         TAKEN.indexOf(id) >= 0;
 }
 
 /** The running apps the person could have opened: store apps, not Samsung's own pieces. */
@@ -151,72 +136,61 @@ function anyVisible(ids, done) {
   }
 }
 
-// MARK: - Watching our own place on the screen
+// MARK: - Deciding
 
 function tick() {
   if (!guard.on || guard.busy) return;
   var now = Date.now();
+  if (guard.here || !guard.awayAt) return;                                  // the page says it is on screen
   if (now < guard.pausedUntil || now - guard.lastAttempt < GAP_MS) return;
+  if (now - guard.awayAt < AWAY_MS) return;                                 // give the TV a moment to settle
   guard.busy = true;
-  appState(APP, function (self) {
-    guard.last.self = self ? (self.visible ? 'visible' : 'hidden') : 'unknown';
-    if (!self) { guard.busy = false; return; }    // the TV won't say where we are: leave the screen alone
-    if (self.visible) {
-      guard.seen = true;
-      guard.gone = 0;
-      guard.watch = '';
-      guard.launches = 0;
-      guard.last.action = 'ours is on screen';
-      guard.busy = false;
-      return;
-    }
-    if (!guard.seen) { guard.busy = false; return; }   // never had the screen: nothing to take back
-    if (!guard.gone) { guard.gone = now; guard.last.action = 'left the screen'; guard.busy = false; return; }
-    if (now - guard.gone < AWAY_MS) { guard.busy = false; return; }
-    // Off screen for a moment. A TV switched off is not the Home button; an app that has the screen is not either.
-    powerState(function (power) {
-      guard.last.power = power;
-      if (power !== 'on') { guard.gone = 0; guard.last.action = 'the TV is not on'; guard.busy = false; return; }
-      if (guard.watch) { followWatched(); return; }
-      runningIds(function (ids) {
-        if (!ids) { guard.last.apps = 0; guard.last.action = 'no running apps from the TV'; guard.busy = false; return; }
-        var ask = appsToAsk(ids);
-        guard.last.apps = ask.length;
-        if (!ask.length) { guard.last.screen = ''; guard.busy = false; open(); return; }
-        anyVisible(ask, function (shown) {
-          guard.last.screen = shown || '';
-          guard.busy = false;
-          if (!shown) { open(); return; }
+  powerState(function (power) {
+    guard.last.power = power;
+    if (power !== 'on') { guard.awayAt = 0; guard.last.action = 'the TV is not on'; guard.busy = false; return; }
+    if (guard.watch) { followWatched(); return; }
+    runningIds(function (ids) {
+      if (!ids) { guard.last.action = 'the TV would not list its apps'; guard.busy = false; open(); return; }
+      var ask = appsToAsk(ids);
+      guard.last.apps = ask.length;
+      anyVisible(ask, function (shown) {
+        guard.busy = false;
+        guard.last.screen = shown || '';
+        if (shown) {
           guard.watch = shown;
-          guard.last.action = 'an app has the screen';
+          guard.last.action = shown + ' has the screen';
           log('an app has the screen (' + shown + '): staying away until it lets go');
-        });
+          return;
+        }
+        open();
       });
     });
   });
 }
 
-/** An app we were following: once it leaves the screen, Free My TV comes back. */
+/** An app the page opened: while the TV says it has the screen, stay away; then come back. */
 function followWatched() {
   var id = guard.watch;
+  // The TV's own settings and the inputs can't be asked about: leave them alone until the page is back.
+  if (isSystem(id)) { guard.busy = false; guard.last.action = 'the TV\'s own screen (' + id + ')'; return; }
   appState(id, function (state) {
     guard.busy = false;
-    if (state && state.visible) { guard.last.action = id + ' has the screen'; return; }
+    if (state && state.visible) { guard.watchedSeen = true; guard.last.action = id + ' has the screen'; return; }
+    if (!state && !guard.watchedSeen) { guard.last.action = id + ' cannot be asked about yet'; return; }
     guard.watch = '';
+    guard.watchedSeen = false;
     guard.last.screen = '';
-    log((state ? id + ' left the screen' : id + ' is not running any more') + ': opening Free My TV');
+    log(id + (state ? ' left the screen' : ' is not running any more'));
     open();
   });
 }
 
 function open() {
-  guard.gone = 0;
-  guard.watch = '';
   guard.last.action = 'opening Free My TV';
   if (++guard.launches > BLIND) {
     guard.on = false;
-    guard.last.action = 'stood down: the TV never showed us';
-    log('the TV never showed Free My TV on screen after ' + BLIND + ' tries: leaving the Home button to the TV');
+    guard.last.action = 'stood down';
+    log('Free My TV would not come back after ' + BLIND + ' tries: leaving the Home button to the TV');
     return;
   }
   var now = Date.now();
@@ -253,7 +227,7 @@ function plainOpen() {
   }
 }
 
-// MARK: - The home screen's commands, and the state
+// MARK: - What the page and the settings screen say
 
 function query(url) {
   var out = {}, at = String(url || '').indexOf('?');
@@ -275,13 +249,25 @@ function handle(cmd, params) {
     guard.pausedUntil = 0;
     guard.attempts = [];
     guard.launches = 0;
-    guard.gone = 0;
     guard.watch = '';
-    guard.seen = false;
+    guard.awayAt = 0;
+    guard.here = true;
     log('holding the Home button: Samsung\'s screen goes back to Free My TV');
   } else if (cmd === 'off') {
     guard.on = false;
     log('leaving the Home button to the TV: Samsung\'s screen stays');
+  } else if (cmd === 'here') {
+    guard.here = true;
+    guard.awayAt = 0;
+    guard.watch = '';
+    guard.launches = 0;
+    guard.last.action = 'the page is on screen';
+  } else if (cmd === 'away') {
+    guard.here = false;
+    guard.awayAt = Date.now();
+    guard.watch = params.app || '';
+    guard.watchedSeen = false;
+    guard.last.action = guard.watch ? 'the page left for ' + guard.watch : 'the page left the screen';
   } else if (cmd === 'pause') {
     var seconds = parseInt(params.seconds, 10) || 180;
     guard.pausedUntil = Date.now() + seconds * 1000;
@@ -292,8 +278,9 @@ function handle(cmd, params) {
 }
 
 function state() {
-  return { on: guard.on, paused: Date.now() < guard.pausedUntil, app: APP, port: PORT, since: guard.since,
-           seen: guard.seen, watch: guard.watch, last: guard.last, lines: lines.slice(-25) };
+  return { on: guard.on, paused: Date.now() < guard.pausedUntil, here: guard.here, watch: guard.watch,
+           awayFor: guard.awayAt ? Date.now() - guard.awayAt : 0, app: APP, port: PORT, since: guard.since,
+           last: guard.last, lines: lines.slice(-25) };
 }
 
 var server = http.createServer(function (req, res) {
@@ -308,8 +295,8 @@ var server = http.createServer(function (req, res) {
                                : JSON.stringify({ since: guard.since, lines: lines.slice(-40) }));
       return;
     }
-    // Commands only from the TV itself, where the home screen is; the state above is readable from anywhere.
-    if (path === 'on' || path === 'off' || path === 'pause') {
+    // Only the TV itself may drive it: `here`/`away` come from the page, `on`/`off` from Home Settings.
+    if (path === 'on' || path === 'off' || path === 'pause' || path === 'here' || path === 'away') {
       if (local && local !== '127.0.0.1' && local !== '::1' && local !== '::ffff:127.0.0.1') {
         res.statusCode = 403;
         res.end('from the TV only');

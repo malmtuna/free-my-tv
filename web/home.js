@@ -2162,6 +2162,7 @@
   document.addEventListener('webOSRelaunch', reopened);   // LG: opened again while running
   window.addEventListener('appcontrol', reopened);        // Samsung: the same
   document.addEventListener('visibilitychange', function () {
+    TV.setVisible(!document.hidden);   // Samsung: the one reliable word on whether this page has the screen
     if (document.hidden) { hideSaver(); hideAmbient(); return; }
     idleAt = Date.now();
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
