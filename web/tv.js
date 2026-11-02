@@ -517,18 +517,25 @@ var TV = (function () {
     }
   }
 
-  var watchApp = '', watchTimer = null, sawApp = false;
+  var watchApp = '', watchTimer = null, sawApp = false, watchFrom = 0;
 
-  /** Follow the app this page opened: when the TV no longer shows it, Free My TV comes back. */
+  /**
+   * Follow the app this page opened: when the TV no longer shows it, Free My TV comes back. An app that is still
+   * starting (running, not yet on screen - YouTube takes seconds) is not an app that left.
+   */
   function followApp() {
     clearInterval(watchTimer);
+    watchFrom = Date.now();
     watchTimer = setInterval(function () {
       if (!watchApp) { clearInterval(watchTimer); return; }
       tvJson('http://127.0.0.1:8001/api/v2/applications/' + watchApp, function (info) {
         if (!watchApp) return;
         if (info && info.visible) { sawApp = true; return; }     // it has the screen
-        if (!info && !sawApp) return;                            // not known yet: give it time
-        var left = watchApp;
+        if (!sawApp) {
+          // Not seen on screen yet: give it time, and quietly stop following one that never turns up.
+          if (Date.now() - watchFrom > 30000) { watchApp = ''; clearInterval(watchTimer); }
+          return;
+        }
         watchApp = '';
         sawApp = false;
         clearInterval(watchTimer);

@@ -43,7 +43,7 @@ var TAKEN = ['org.tizen.tv-viewer', 'org.tizen.menu'];
 
 var lines = [];
 var guard = { on: true, pausedUntil: 0, busy: false, since: '', timer: null, here: true, awayAt: 0,
-              lastAttempt: 0, attempts: [], launches: 0, watch: '', watchedSeen: false,
+              lastAttempt: 0, attempts: [], launches: 0, watch: '', watchedSeen: false, watchFrom: 0,
               last: { power: '', apps: 0, screen: '', action: 'starting' } };
 
 function log(text) {
@@ -176,7 +176,12 @@ function followWatched() {
   appState(id, function (state) {
     guard.busy = false;
     if (state && state.visible) { guard.watchedSeen = true; guard.last.action = id + ' has the screen'; return; }
-    if (!state && !guard.watchedSeen) { guard.last.action = id + ' cannot be asked about yet'; return; }
+    if (!guard.watchedSeen) {
+      // Running but not on screen yet: an app takes seconds to start, and that is not leaving.
+      if (Date.now() - guard.watchFrom > 30000) { guard.watch = ''; guard.last.action = id + ' never came on screen'; }
+      else guard.last.action = id + ' is starting';
+      return;
+    }
     guard.watch = '';
     guard.watchedSeen = false;
     guard.last.screen = '';
@@ -267,6 +272,7 @@ function handle(cmd, params) {
     guard.awayAt = Date.now();
     guard.watch = params.app || '';
     guard.watchedSeen = false;
+    guard.watchFrom = Date.now();
     guard.last.action = guard.watch ? 'the page left for ' + guard.watch : 'the page left the screen';
   } else if (cmd === 'pause') {
     var seconds = parseInt(params.seconds, 10) || 180;
