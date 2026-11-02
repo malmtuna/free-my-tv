@@ -1578,7 +1578,7 @@
 
   // MARK: - About this TV: what to quote when reporting a problem, without LG's or Samsung's slow menus
 
-  function renderAbout(info, home) {
+  function renderAbout(info, home, debug) {
     var box = $('about').firstChild;
     box.innerHTML = '';
     el('div', 'title', box, tr('About this TV'));
@@ -1599,6 +1599,7 @@
       fitValue(help, helpLabel, helpValue);
     }
     el('div', 'hint', box, tr('Back closes.'));
+    if (debug) el('div', 'hint', box, debug);   // raw, for when the Home button doesn't come back
   }
 
   /** A long value (Samsung's firmware) gets smaller instead of running over its label, and ends in "…" if even the smallest size is too wide. */
@@ -1611,13 +1612,19 @@
   function openAbout() {
     setClass($('settings'), 'open', false);
     st.zone = Z.ABOUT;
-    var info = null, home = TV.name === 'tizen' ? null : '';   // null: the helper hasn't answered yet
-    function paint() { if (st.zone === Z.ABOUT) renderAbout(info, home); }
-    renderAbout(null, home);
+    var info = null, home = TV.name === 'tizen' ? null : '', debug = '';   // null: the helper hasn't answered yet
+    function paint() { if (st.zone === Z.ABOUT) renderAbout(info, home, debug); }
+    renderAbout(null, home, '');
     setClass($('about'), 'open', true);
     updateFocus();
     TV.about(function (got) { info = got; paint(); });
-    if (TV.name === 'tizen') TV.homeState(function (state) { home = state; paint(); });
+    if (TV.name === 'tizen') {
+      TV.homeState(function (state) { home = state; paint(); });
+      if (TV.homeDebug) TV.homeDebug(function (d) {
+        debug = 'page: ' + d.page + ' · helper: ' + (d.helper || 'no answer');
+        paint();
+      });
+    }
   }
 
   function closeAbout() {

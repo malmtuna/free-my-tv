@@ -464,6 +464,7 @@ var TV = (function () {
     if (!samsung) return;
     var cmd = on ? 'on' : 'off';
     helperGet(cmd);
+    watchPage();   // starts the page's own watch once; harmless if it is already running
     try {
       var data = new window.tizen.ApplicationControlData('cmd', [cmd]);
       var control = new window.tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service', null, null, null, [data]);
@@ -496,6 +497,34 @@ var TV = (function () {
       return;
     }
     helperGet('away' + (launching && launching.indexOf('source:') !== 0 ? '?app=' + encodeURIComponent(launching) : ''));
+  }
+
+  // A TV may not deliver visibilitychange when another app takes the screen, so the page also polls the two things
+  // the browser does report: document.hidden and whether it still has the focus.
+  var pageHidden = null, pageSaid = 'nothing yet', pageWatched = false;
+
+  function notePage(hidden) {
+    var d = new Date(), two = function (n) { return (n < 10 ? '0' : '') + n; };
+    pageSaid = (hidden ? 'hidden' : 'visible') + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+    setVisible(!hidden);
+  }
+
+  function watchPage() {
+    if (!samsung || pageWatched) return;
+    pageWatched = true;
+    setInterval(function () {
+      var hidden = document.hidden === true || (document.hasFocus && !document.hasFocus());
+      if (pageHidden === null || hidden !== pageHidden) { pageHidden = hidden; notePage(hidden); }
+    }, 500);
+  }
+
+  /** For About this TV: what the page last saw, and what the helper says it is doing ('' when it won't answer). */
+  function homeDebug(done) {
+    helperGet('state', function (text) {
+      var info = null;
+      try { info = JSON.parse(text); } catch (e) {}
+      done({ page: pageSaid, helper: info && info.last ? info.last.action : '', here: info ? info.here : null });
+    });
   }
 
   // MARK: - About this TV
@@ -713,6 +742,9 @@ var TV = (function () {
 
     /** Samsung: this page's own place on the screen, which the TV won't report (see setVisible). */
     setVisible: setVisible,
+
+    /** Samsung: what the page last saw and what the helper is doing, for About this TV's diagnostics line. */
+    homeDebug: homeDebug,
 
     /** Samsung: 'on', 'off', or '' when the background helper doesn't answer (About this TV). */
     homeState: homeState,
