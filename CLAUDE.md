@@ -604,6 +604,8 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   so (`0.0.0.0`, to read the state from the LAN) left the helper with no server at all on a 2026 S85H. If the service
   doesn't start at all (it stopped doing so on that set after a few installs), the page does the same itself
   (`pageComeBack`): it asks the TV for `PowerState` and the running store apps and reopens itself with `eden_resume`,
-  and About says *the page does the work*. The idea, and
+  and About says *the page does the work*. When it opened an app instead, it follows that app (`followApp`,
+  `/api/v2/applications/<id>` until the TV stops showing it) and reopens then, which is also how a Home press inside
+  YouTube comes back. The idea, and
   the app-control names, are Skylight's (github.com/SaudSatopay/skylight-tizen, MIT); it is why `tizen/build.py` packs
   `watch.js` and why the widget has `application.info`.

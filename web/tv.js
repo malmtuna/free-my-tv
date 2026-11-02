@@ -494,17 +494,47 @@ var TV = (function () {
     if (!samsung) return;
     if (visible) {
       launching = '';
+      watchApp = '';
+      sawApp = false;
+      clearInterval(watchTimer);
       clearTimeout(homeTimer);
       homeTimer = null;
       helperGet('here');
       return;
     }
     helperGet('away' + (launching && launching.indexOf('source:') !== 0 ? '?app=' + encodeURIComponent(launching) : ''));
-    // If the background service isn't running, this page does the job itself, a moment after being covered.
-    if (helperAlive === false && !launching) {
-      clearTimeout(homeTimer);
-      homeTimer = setTimeout(pageComeBack, 1300);
+    // If the background service isn't running, this page does the job itself.
+    if (helperAlive === false) {
+      if (launching && launching.indexOf('source:') !== 0) {
+        // It opened an app: follow it, and come back when that app lets go (that is also the Home button there).
+        watchApp = launching;
+        sawApp = false;
+        followApp();
+      } else if (!launching) {
+        clearTimeout(homeTimer);
+        homeTimer = setTimeout(pageComeBack, 1300);
+      }
     }
+  }
+
+  var watchApp = '', watchTimer = null, sawApp = false;
+
+  /** Follow the app this page opened: when the TV no longer shows it, Free My TV comes back. */
+  function followApp() {
+    clearInterval(watchTimer);
+    watchTimer = setInterval(function () {
+      if (!watchApp) { clearInterval(watchTimer); return; }
+      tvJson('http://127.0.0.1:8001/api/v2/applications/' + watchApp, function (info) {
+        if (!watchApp) return;
+        if (info && info.visible) { sawApp = true; return; }     // it has the screen
+        if (!info && !sawApp) return;                            // not known yet: give it time
+        var left = watchApp;
+        watchApp = '';
+        sawApp = false;
+        clearInterval(watchTimer);
+        if (pageHidden) relaunchSelf();
+      });
+    }, 1500);
   }
 
   // A TV may not deliver visibilitychange when another app takes the screen, so the page also polls the two things
