@@ -149,7 +149,7 @@ Home, or leaving an app, lands on Free My TV again after a moment of Samsung's s
 turns that off, and leaves Samsung's home as it was). Two ways:
 
 - **The release, no tools:** TizenBrew Installer (github.com/reisxd/TizenBrewInstaller) installs the latest GitHub
-  release when they type `simbasjungles/free-my-tv`, and on 2023+ TVs signs it with their Samsung account. That build
+  release when they type `malmtuna/free-my-tv`, and on 2023+ TVs signs it with their Samsung account. That build
   has no TMDB key built in (they type theirs in *Home Settings* → *TMDB key*) and takes the city from the TV's time
   zone. Walk them through the README's steps.
 - **Their own build** (their city, their TMDB key), below.

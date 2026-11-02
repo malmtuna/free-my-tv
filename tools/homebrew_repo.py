@@ -23,7 +23,7 @@ DIR = os.path.join(ROOT, 'docs', 'webos')
 OUT = os.path.join(DIR, 'apps.json')
 SITE = 'https://freemytv.io/webos/'
 ICON = 'https://freemytv.io/assets/icon-512.png'
-SOURCE = 'https://github.com/simbasjungles/free-my-tv'
+SOURCE = 'https://github.com/malmtuna/free-my-tv'
 
 
 def write(sha256, size, ipk):

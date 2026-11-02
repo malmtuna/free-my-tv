@@ -22,7 +22,7 @@
         "title": "Free My TV",
         "appDescription": "A fast, ad-free home screen: your apps on a glass shelf, the weather and prices, day and night.",
         "iconUri": "https://freemytv.io/assets/icon-512.png",
-        "sourceUrl": "https://github.com/simbasjungles/free-my-tv",
+        "sourceUrl": "https://github.com/malmtuna/free-my-tv",
         "rootRequired": false,
         "ipkUrl": "https://freemytv.io/webos/FreeMyTV-webos-1.3.0.ipk",
         "ipkHash": {
