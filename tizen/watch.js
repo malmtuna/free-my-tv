@@ -334,7 +334,9 @@ module.exports = {
     guard.since = t.toDateString().slice(0, 10) + ' ' + t.toTimeString().slice(0, 8);
     log('started');
     try {
-      server.listen(PORT, '0.0.0.0', function () { log('listening on port ' + PORT); });
+      // Loopback only: the page talks to it there, and a Tizen web service may not bind a network interface
+      // (binding 0.0.0.0 for a LAN-readable state left the helper with no server at all on a 2026 S85H).
+      server.listen(PORT, '127.0.0.1', function () { log('listening on 127.0.0.1:' + PORT); });
     } catch (e) {
       log('listen threw: ' + (e && e.message));
     }
