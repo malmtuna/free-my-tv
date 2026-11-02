@@ -589,15 +589,18 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   (`FreeMyTVio.FreeMyTVWatch`, the app's id with `Watch` on the end, started by the page and kept by `auto-restart`)
   that watches Free My TV's own place on the screen: `GET /api/v2/applications/FreeMyTVio.FreeMyTV` on 8001 (which
   answers only callers on the TV) says when it is no longer visible. It then waits a moment and checks `/api/v2/`'s
-  `PowerState` (a TV switched off mustn't be switched back on) and the running apps; an app the person opened (a new
-  id, `newApps`) is left alone until it closes, and anything else means the Home button did it: Free My TV is opened
-  again with Samsung's `eden_resume` app control. Home, and leaving an app, land back here after about a second of
-  Samsung's screen. That app's own visibility is the only thing that can be asked: on a 2026 TQ65S85H (Tizen 10) the
-  status service answers for store apps and ours and 404s for Samsung's whole namespace, so "is the home on screen"
-  has no answer there (`HOMES` only helps recognise one among the running apps). It stands down when *Home Settings* →
-  *Home button* is off (`Prefs.homeGuard`, on by default), after eight tries in a minute, and after four tries that
-  never show it on screen. `background-support="enable"` keeps the page alive under another app. Its log is at
-  `http://127.0.0.1:8131/log` on the TV (port 8131; 8130 is Skylight's), and `python3 tizen/install.py <IP> --log`
-  prints it from the TV's own log. The idea, and the app-control names, are Skylight's
+  `PowerState` (a TV switched off mustn't be switched back on), and asks the store apps that are running
+  (`appsToAsk`: ids outside Samsung's and Tizen's namespaces, at most 12) whether one of them has the screen: one
+  that does was opened by the person and is followed until it lets go; anything else means the Home button did it,
+  and Free My TV is opened again with Samsung's `eden_resume` app control. Home, and leaving an app, land back here
+  after about a second of Samsung's screen. That app's own visibility is the only thing that can be asked: on a 2026
+  TQ65S85H (Tizen 10) the status service answers for store apps and ours and 404s for Samsung's whole namespace, so
+  "is the home on screen" has no answer there (`HOMES` only helps recognise one among the running apps; a new
+  *running* system process must never count as an app, or the helper follows it forever). It stands down when *Home
+  Settings* → *Home button* is off (`Prefs.homeGuard`, on by default), after eight tries in a minute, and after four
+  tries that never show it on screen. `background-support="enable"` keeps the page alive under another app. Port 8131
+  (8130 is Skylight's) carries its state: `http://<TV IP>:8131/state` and `/log` are readable from the network (they
+  are how a TV that won't give a shell is debugged), while the `on`/`off`/`pause` commands are taken only from the TV
+  itself. The idea, and the app-control names, are Skylight's
   (github.com/SaudSatopay/skylight-tizen, MIT); it is why `tizen/build.py` packs `watch.js` and why the widget has
   `application.info`.
