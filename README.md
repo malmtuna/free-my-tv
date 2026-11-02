@@ -136,9 +136,7 @@ Developer Mode lasts about 40 days: open the Developer Mode app now and then and
 
 ## Samsung TVs (Tizen)
 
-The same home screen as a Samsung app, with everything the LG one has: the picks, the shelf, the drawer with the inputs, the weather and the prices, day and night, and its own settings. It installs through Samsung's own Developer Mode, with nothing rooted or changed on the TV.
-
-Samsung keeps the Home button for its own home screen, and no app may take it, so Free My TV comes back the other way: a small helper in the app watches when Free My TV loses the screen, and if nothing else (no app you opened, and not a TV switched off) took it, it puts Free My TV back, about a second later. Home, and leaving an app, then land on Free My TV; *Home Settings* → *Home button* turns that off and leaves Samsung's home exactly as it was. The helper does nothing on a TV whose system doesn't answer it, so older sets simply keep the Home button they had.
+The same home screen as a Samsung app, with everything the LG one has: the picks, the shelf, the drawer with the inputs, the weather and the prices, day and night, and its own settings. It installs through Samsung's own Developer Mode, with nothing rooted or changed on the TV, and Samsung's home screen stays where it is.
 
 You need a Samsung TV on Tizen, from 2015 or newer, and a computer on the same Wi-Fi (a 2015 UE48JU6100 on Tizen 2.3 was reported working, #317, while a 2016 Full HD UE49K5670 refuses developer installs altogether, with `failed[118]` even from Samsung's own `tizen install`, #349: on a 2016 UE49KU6640 and a UN49KU6400 the same answer was a copy left by an earlier failed install, which `python3 tizen/install.py <IP> --uninstall` removed (sign with a Tizen certificate there: a Samsung one kept getting it on the KU6400); Orsay models can't run it, but a Google TV streamer on HDMI can). 2015 and 2016 TVs can't run TizenBrew, so on those build it yourself (below); TV Settings isn't in the drawer there, since apps can't open the TV's settings, nor on 2017 and 2018 TVs (Tizen 3 and 4), which freeze trying (#257); the remote's own Settings button works on all of them.
 

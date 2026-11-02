@@ -3,7 +3,6 @@
 
     python3 tizen/install.py 192.168.1.50              # install or update, then open it
     python3 tizen/install.py 192.168.1.50 --uninstall  # remove it
-    python3 tizen/install.py 192.168.1.50 --log        # watch the TV's log for 20 s: what the Home-button helper saw
 
 First build and sign it: python3 tizen/build.py --sign <profile> (see CLAUDE.md). Before the first install, on the
 TV: open Apps, type 1 2 3 4 5 on the remote, turn Developer mode on with this computer's IP as Host PC IP, and
@@ -146,27 +145,6 @@ def main():
         sys.exit(__doc__)
     ip = args[0]
     uninstall = '--uninstall' in sys.argv
-    if '--log' in sys.argv:
-        # What tizen/watch.js saw (its console.log lines), so a Home button that doesn't come back can be explained
-        # without Tizen Studio. Press Home while this waits.
-        try:
-            sdb = Sdb(ip)
-        except (OSError, ConnectionError) as e:
-            sys.exit('Couldn\'t reach the TV on port %d (%s).' % (PORT, e))
-        if 'fmtv-check' not in sdb.shell('echo fmtv-check', None, 4):
-            # A retail TV's sdbd answers Tizen's own `0 ...` commands and nothing of a plain shell (a 2026 TQ65S85H
-            # does), so its log can't be read this way.
-            sys.exit('This TV doesn\'t let a computer read its log. On the TV, Home Settings > About this TV shows '
-                     'whether the Home-button helper is running: Home button, On or Unavailable.')
-        print('Press Home on the TV now: reading its log for 20 seconds ...')
-        text = sdb.shell('dlogutil', None, 20)
-        lines = [line for line in text.splitlines() if 'FreeMyTV' in line]
-        if lines:
-            sys.stdout.write('\n'.join(lines) + '\n')
-        else:
-            print('Nothing about Free My TV in those 20 seconds. If the TV has no dlogutil, its log can\'t be read '
-                  'this way.')
-        return
     if uninstall:
         # Removing needs only the app's ids: the manifest the package is built from has them, so no build is needed.
         with open(os.path.join(ROOT, 'tizen', 'config.xml'), encoding='utf-8') as f:

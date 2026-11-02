@@ -426,249 +426,6 @@ var TV = (function () {
     }
   }
 
-  // MARK: - The Home button (Samsung)
-
-  // Samsung keeps the Home button: it opens Samsung's own home, and no app can register for it (Android TV is the
-  // other way round, where Free My TV is the home app). A helper in this package (watch.js, a Tizen web service)
-  // watches Free My TV's own place on the screen and opens it again when nothing else took it. So Home lands here,
-  // after a moment of Samsung's screen. The helper runs in its own process, so a frozen page or a heavy app can't
-  // stop it; Home Settings' Home button tells it to stand down.
-  var HELPER_PORT = 8131;
-  var launching = '';   // the app this page is opening, so the helper doesn't come back over it
-  var helperAlive = null, homeTimer = null;   // null until asked; true once the helper's port answers
-
-  /** One command to the helper, over its port; done(text) with null when it doesn't answer. */
-  function helperGet(path, done) {
-    var x = null;
-    try {
-      x = new XMLHttpRequest();
-      x.open('GET', 'http://127.0.0.1:' + HELPER_PORT + '/' + path, true);
-      x.timeout = 1500;
-    } catch (e) {
-      if (done) done(null);
-      return;
-    }
-    var over = false;
-    function finish(text) { if (!over) { over = true; if (done) done(text); } }
-    x.onreadystatechange = function () {
-      if (x.readyState === 4) finish(x.status === 200 ? x.responseText : null);
-    };
-    x.ontimeout = x.onerror = function () { finish(null); };
-    try { x.send(); } catch (e) { finish(null); }
-  }
-
-  /**
-   * Gives the Home button to Free My TV (`on`) or back to the TV: starts the helper, which keeps the setting. Both
-   * ways are tried: the port answers when it is up, the app control starts it when it isn't.
-   */
-  function homeGuard(on) {
-    if (!samsung) return;
-    var cmd = on ? 'on' : 'off';
-    helperGet(cmd);
-    watchPage();   // starts the page's own watch once; harmless if it is already running
-    try {
-      var data = new window.tizen.ApplicationControlData('cmd', [cmd]);
-      var control = new window.tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service', null, null, null, [data]);
-      window.tizen.application.launchAppControl(control, self + 'Watch', function () {}, function () {});
-    } catch (e) {
-      try { window.tizen.application.launch(self + 'Watch'); } catch (e2) {}
-    }
-  }
-
-  /** Whether the helper is up and holding the Home button: done('on'), done('off'), or done('') when it won't say. */
-  function homeState(done) {
-    if (!samsung) { done(''); return; }
-    helperGet('state', function (text) {
-      var info = null;
-      try { info = JSON.parse(text); } catch (e) {}
-      done(info && typeof info.on === 'boolean' ? (info.on ? 'on' : 'off') : '');
-    });
-  }
-
-  /**
-   * The page's own place on the screen, which is the one thing the TV's status API won't tell it: `visible` stays
-   * false for a web app even while it is in front (2026 S85H, Tizen 10). So the page says when it is hidden, and
-   * which app it is opening, and the helper takes it from there.
-   */
-  function setVisible(visible) {
-    if (!samsung) return;
-    if (visible) {
-      launching = '';
-      watchApp = '';
-      sawApp = false;
-      clearInterval(watchTimer);
-      clearTimeout(homeTimer);
-      homeTimer = null;
-      helperGet('here');
-      return;
-    }
-    helperGet('away' + (launching && launching.indexOf('source:') !== 0 ? '?app=' + encodeURIComponent(launching) : ''));
-    // If the background service isn't running, this page does the job itself.
-    if (helperAlive === false) {
-      if (launching && launching.indexOf('source:') !== 0) {
-        // It opened an app: follow it, and come back when that app lets go (that is also the Home button there).
-        watchApp = launching;
-        sawApp = false;
-        followApp();
-      } else if (!launching) {
-        clearTimeout(homeTimer);
-        homeTimer = setTimeout(pageComeBack, 1300);
-      }
-    }
-  }
-
-  var watchApp = '', watchTimer = null, sawApp = false, watchFrom = 0;
-
-  /**
-   * Follow the app this page opened: when the TV no longer shows it, Free My TV comes back. An app that is still
-   * starting (running, not yet on screen - YouTube takes seconds) is not an app that left.
-   */
-  function followApp() {
-    clearInterval(watchTimer);
-    watchFrom = Date.now();
-    watchTimer = setInterval(function () {
-      if (!watchApp) { clearInterval(watchTimer); return; }
-      tvJson('http://127.0.0.1:8001/api/v2/applications/' + watchApp, function (info) {
-        if (!watchApp) return;
-        if (info && info.visible) { sawApp = true; return; }     // it has the screen
-        if (!sawApp) {
-          // Not seen on screen yet: give it time, and quietly stop following one that never turns up.
-          if (Date.now() - watchFrom > 30000) { watchApp = ''; clearInterval(watchTimer); }
-          return;
-        }
-        watchApp = '';
-        sawApp = false;
-        clearInterval(watchTimer);
-        if (pageHidden) relaunchSelf();
-      });
-    }, 1500);
-  }
-
-  // A TV may not deliver visibilitychange when another app takes the screen, so the page also polls the two things
-  // the browser does report: document.hidden and whether it still has the focus.
-  var pageHidden = null, pageSaid = 'nothing yet', pageWatched = false;
-
-  function notePage(hidden) {
-    var d = new Date(), two = function (n) { return (n < 10 ? '0' : '') + n; };
-    pageSaid = (hidden ? 'hidden' : 'visible') + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
-    setVisible(!hidden);
-  }
-
-  function watchPage() {
-    if (!samsung || pageWatched) return;
-    pageWatched = true;
-    setInterval(function () {
-      var hidden = document.hidden === true || (document.hasFocus && !document.hasFocus());
-      if (pageHidden === null || hidden !== pageHidden) { pageHidden = hidden; notePage(hidden); }
-    }, 500);
-    // Whether the background service is there: if it isn't, this page takes over (see setVisible).
-    var ask = function () { helperGet('state', function (text) { helperAlive = !!text; }); };
-    ask();
-    setInterval(ask, 5000);
-  }
-
-  /** A JSON GET on the TV itself (8001 answers only callers on the TV); done(info) with null on failure. */
-  function tvJson(path, done) {
-    try {
-      var x = new XMLHttpRequest();
-      x.open('GET', path, true);
-      x.timeout = 1500;
-      x.onreadystatechange = function () {
-        if (x.readyState !== 4) return;
-        var info = null;
-        try { info = JSON.parse(x.responseText); } catch (e) {}
-        done(info);
-      };
-      x.ontimeout = x.onerror = function () { done(null); };
-      x.send();
-    } catch (e) {
-      done(null);
-    }
-  }
-
-  /** The first of these apps the TV says is on screen, or ''. */
-  function tvAnyVisible(ids, done) {
-    var left = ids.length, found = '';
-    if (!left) { done(''); return; }
-    for (var i = 0; i < ids.length; i++) {
-      (function (id) {
-        tvJson('http://127.0.0.1:8001/api/v2/applications/' + id, function (info) {
-          if (!found && info && info.visible) found = id;
-          if (--left === 0) done(found);
-        });
-      })(ids[i]);
-    }
-  }
-
-  /**
-   * The page's own Home button, for a TV where the background service can't start: when it has been covered and no
-   * store app has the screen (and the TV is still on), it opens itself again with Samsung's resume control.
-   *
-   * It keeps looking for a few seconds first: a remote's Netflix button opens Netflix slowly, and a quick look would
-   * find nothing on screen and drag the person back out of it.
-   */
-  function pageComeBack() {
-    var tries = 0;
-    function look() {
-      if (helperAlive !== false || !pageHidden) return;
-      tvJson('http://127.0.0.1:8001/api/v2/', function (dev) {
-        if (!dev || !dev.device || String(dev.device.PowerState) !== 'on') return;
-        var ids = [];
-        try {
-          window.tizen.application.getAppsContext(function (list) {
-            for (var i = 0; i < list.length; i++) ids.push(list[i].appId);
-            check();
-          }, function () { again(); });
-          return;
-        } catch (e) {}
-        again();
-
-        function check() {
-          var ask = [];
-          for (var j = 0; j < ids.length && ask.length < 12; j++) {
-            if (ids[j] && ids[j] !== self && !/^(com\.samsung\.|org\.tizen\.)/i.test(ids[j])) ask.push(ids[j]);
-          }
-          tvAnyVisible(ask, function (shown) {
-            if (shown) {
-              // An app took the screen after all: follow it, so leaving it (or Home inside it) comes back here.
-              watchApp = shown;
-              sawApp = true;
-              followApp();
-              return;
-            }
-            again();
-          });
-        }
-        function again() {
-          if (++tries < 5) { setTimeout(look, 800); return; }
-          relaunchSelf();
-        }
-      });
-    }
-    look();
-  }
-
-  function relaunchSelf() {
-    try {
-      var resume = new window.tizen.ApplicationControl('http://samsung.com/appcontrol/operation/eden_resume');
-      window.tizen.application.launchAppControl(resume, self, function () {}, function () {
-        try { window.tizen.application.launch(self); } catch (e) {}
-      });
-    } catch (e) {
-      try { window.tizen.application.launch(self); } catch (e2) {}
-    }
-  }
-
-  /** For About this TV: what the page last saw, and what the helper says it is doing ('' when it won't answer). */
-  function homeDebug(done) {
-    helperGet('state', function (text) {
-      var info = null;
-      try { info = JSON.parse(text); } catch (e) {}
-      done({ page: pageSaid, helper: info && info.last ? info.last.action : '', here: info ? info.here : null,
-             mode: helperAlive === null ? '' : helperAlive ? 'helper' : 'page' });
-    });
-  }
-
   // MARK: - About this TV
 
   /** done({model, firmware, system, version, ip}), with '' for what the TV doesn't tell. */
@@ -804,7 +561,6 @@ var TV = (function () {
     /** Opens an app (or an input); done(ok). */
     launch: function (id, params, done) {
       if (samsung) {
-        launching = id;   // so the helper, once this page is hidden, knows an app took the screen
         if (id.indexOf('source:') === 0) samsungSource(id, done);
         else samsungLaunch(id, done);
         return;
@@ -825,7 +581,6 @@ var TV = (function () {
     youtube: function (videoId, done) {
       var v = 'v=' + encodeURIComponent(videoId);
       if (samsung) {
-        launching = samsungYouTube();
         var dial = function () { dialLaunch('YouTube', done, v); };
         try {
           var data = new window.tizen.ApplicationControlData('PAYLOAD', [JSON.stringify({values: v})]);
@@ -875,21 +630,9 @@ var TV = (function () {
 
     /** The TV's own settings; done(ok). */
     settings: function (done) {
-      if (samsung) { launching = 'org.tizen.menu'; samsungSettings(done); }
+      if (samsung) samsungSettings(done);
       else this.launch('com.palm.app.settings', null, done);
     },
-
-    /** Samsung: gives the Home button to Free My TV (on) or back to the TV's own home. */
-    homeGuard: homeGuard,
-
-    /** Samsung: this page's own place on the screen, which the TV won't report (see setVisible). */
-    setVisible: setVisible,
-
-    /** Samsung: what the page last saw and what the helper is doing, for About this TV's diagnostics line. */
-    homeDebug: homeDebug,
-
-    /** Samsung: 'on', 'off', or '' when the background helper doesn't answer (About this TV). */
-    homeState: homeState,
 
     /** The TV's model, firmware, system, IP address and this app's version, for About this TV. */
     about: about,
