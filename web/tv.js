@@ -596,25 +596,49 @@ var TV = (function () {
   /**
    * The page's own Home button, for a TV where the background service can't start: when it has been covered and no
    * store app has the screen (and the TV is still on), it opens itself again with Samsung's resume control.
+   *
+   * It keeps looking for a few seconds first: a remote's Netflix button opens Netflix slowly, and a quick look would
+   * find nothing on screen and drag the person back out of it.
    */
   function pageComeBack() {
-    if (helperAlive !== false || !pageHidden) return;
-    tvJson('http://127.0.0.1:8001/api/v2/', function (dev) {
-      if (!dev || !dev.device || String(dev.device.PowerState) !== 'on') return;
-      var ids = [];
-      try {
-        window.tizen.application.getAppsContext(function (list) {
-          for (var i = 0; i < list.length; i++) ids.push(list[i].appId);
+    var tries = 0;
+    function look() {
+      if (helperAlive !== false || !pageHidden) return;
+      tvJson('http://127.0.0.1:8001/api/v2/', function (dev) {
+        if (!dev || !dev.device || String(dev.device.PowerState) !== 'on') return;
+        var ids = [];
+        try {
+          window.tizen.application.getAppsContext(function (list) {
+            for (var i = 0; i < list.length; i++) ids.push(list[i].appId);
+            check();
+          }, function () { again(); });
+          return;
+        } catch (e) {}
+        again();
+
+        function check() {
           var ask = [];
           for (var j = 0; j < ids.length && ask.length < 12; j++) {
             if (ids[j] && ids[j] !== self && !/^(com\.samsung\.|org\.tizen\.)/i.test(ids[j])) ask.push(ids[j]);
           }
-          tvAnyVisible(ask, function (shown) { if (!shown) relaunchSelf(); });
-        }, function () { relaunchSelf(); });
-      } catch (e) {
-        relaunchSelf();
-      }
-    });
+          tvAnyVisible(ask, function (shown) {
+            if (shown) {
+              // An app took the screen after all: follow it, so leaving it (or Home inside it) comes back here.
+              watchApp = shown;
+              sawApp = true;
+              followApp();
+              return;
+            }
+            again();
+          });
+        }
+        function again() {
+          if (++tries < 5) { setTimeout(look, 800); return; }
+          relaunchSelf();
+        }
+      });
+    }
+    look();
   }
 
   function relaunchSelf() {
