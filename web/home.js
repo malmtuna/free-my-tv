@@ -1621,7 +1621,7 @@
     if (TV.name === 'tizen') {
       TV.homeState(function (state) { home = state; paint(); });
       if (TV.homeDebug) TV.homeDebug(function (d) {
-        debug = 'page: ' + d.page + ' · helper: ' + (d.helper || 'no answer');
+        debug = 'page: ' + d.page + ' · ' + (d.mode === 'page' ? 'the page does the work' : 'helper: ' + (d.helper || 'no answer'));
         paint();
       });
     }

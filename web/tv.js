@@ -435,6 +435,7 @@ var TV = (function () {
   // stop it; Home Settings' Home button tells it to stand down.
   var HELPER_PORT = 8131;
   var launching = '';   // the app this page is opening, so the helper doesn't come back over it
+  var helperAlive = null, homeTimer = null;   // null until asked; true once the helper's port answers
 
   /** One command to the helper, over its port; done(text) with null when it doesn't answer. */
   function helperGet(path, done) {
@@ -493,10 +494,17 @@ var TV = (function () {
     if (!samsung) return;
     if (visible) {
       launching = '';
+      clearTimeout(homeTimer);
+      homeTimer = null;
       helperGet('here');
       return;
     }
     helperGet('away' + (launching && launching.indexOf('source:') !== 0 ? '?app=' + encodeURIComponent(launching) : ''));
+    // If the background service isn't running, this page does the job itself, a moment after being covered.
+    if (helperAlive === false && !launching) {
+      clearTimeout(homeTimer);
+      homeTimer = setTimeout(pageComeBack, 1300);
+    }
   }
 
   // A TV may not deliver visibilitychange when another app takes the screen, so the page also polls the two things
@@ -516,6 +524,78 @@ var TV = (function () {
       var hidden = document.hidden === true || (document.hasFocus && !document.hasFocus());
       if (pageHidden === null || hidden !== pageHidden) { pageHidden = hidden; notePage(hidden); }
     }, 500);
+    // Whether the background service is there: if it isn't, this page takes over (see setVisible).
+    var ask = function () { helperGet('state', function (text) { helperAlive = !!text; }); };
+    ask();
+    setInterval(ask, 5000);
+  }
+
+  /** A JSON GET on the TV itself (8001 answers only callers on the TV); done(info) with null on failure. */
+  function tvJson(path, done) {
+    try {
+      var x = new XMLHttpRequest();
+      x.open('GET', path, true);
+      x.timeout = 1500;
+      x.onreadystatechange = function () {
+        if (x.readyState !== 4) return;
+        var info = null;
+        try { info = JSON.parse(x.responseText); } catch (e) {}
+        done(info);
+      };
+      x.ontimeout = x.onerror = function () { done(null); };
+      x.send();
+    } catch (e) {
+      done(null);
+    }
+  }
+
+  /** The first of these apps the TV says is on screen, or ''. */
+  function tvAnyVisible(ids, done) {
+    var left = ids.length, found = '';
+    if (!left) { done(''); return; }
+    for (var i = 0; i < ids.length; i++) {
+      (function (id) {
+        tvJson('http://127.0.0.1:8001/api/v2/applications/' + id, function (info) {
+          if (!found && info && info.visible) found = id;
+          if (--left === 0) done(found);
+        });
+      })(ids[i]);
+    }
+  }
+
+  /**
+   * The page's own Home button, for a TV where the background service can't start: when it has been covered and no
+   * store app has the screen (and the TV is still on), it opens itself again with Samsung's resume control.
+   */
+  function pageComeBack() {
+    if (helperAlive !== false || !pageHidden) return;
+    tvJson('http://127.0.0.1:8001/api/v2/', function (dev) {
+      if (!dev || !dev.device || String(dev.device.PowerState) !== 'on') return;
+      var ids = [];
+      try {
+        window.tizen.application.getAppsContext(function (list) {
+          for (var i = 0; i < list.length; i++) ids.push(list[i].appId);
+          var ask = [];
+          for (var j = 0; j < ids.length && ask.length < 12; j++) {
+            if (ids[j] && ids[j] !== self && !/^(com\.samsung\.|org\.tizen\.)/i.test(ids[j])) ask.push(ids[j]);
+          }
+          tvAnyVisible(ask, function (shown) { if (!shown) relaunchSelf(); });
+        }, function () { relaunchSelf(); });
+      } catch (e) {
+        relaunchSelf();
+      }
+    });
+  }
+
+  function relaunchSelf() {
+    try {
+      var resume = new window.tizen.ApplicationControl('http://samsung.com/appcontrol/operation/eden_resume');
+      window.tizen.application.launchAppControl(resume, self, function () {}, function () {
+        try { window.tizen.application.launch(self); } catch (e) {}
+      });
+    } catch (e) {
+      try { window.tizen.application.launch(self); } catch (e2) {}
+    }
   }
 
   /** For About this TV: what the page last saw, and what the helper says it is doing ('' when it won't answer). */
@@ -523,7 +603,8 @@ var TV = (function () {
     helperGet('state', function (text) {
       var info = null;
       try { info = JSON.parse(text); } catch (e) {}
-      done({ page: pageSaid, helper: info && info.last ? info.last.action : '', here: info ? info.here : null });
+      done({ page: pageSaid, helper: info && info.last ? info.last.action : '', here: info ? info.here : null,
+             mode: helperAlive === null ? '' : helperAlive ? 'helper' : 'page' });
     });
   }
 

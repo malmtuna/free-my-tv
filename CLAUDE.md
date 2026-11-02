@@ -601,6 +601,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   after four tries that never bring the page back. `background-support="enable"` keeps the page alive under another
   app, which is what lets it say `away` as it is covered. Port 8131 (8130 is Skylight's) serves `/state` and `/log`
   on the TV itself, and is bound to 127.0.0.1 only: a Tizen web service may not bind a network interface, and doing
-  so (`0.0.0.0`, to read the state from the LAN) left the helper with no server at all on a 2026 S85H. The idea, and
+  so (`0.0.0.0`, to read the state from the LAN) left the helper with no server at all on a 2026 S85H. If the service
+  doesn't start at all (it stopped doing so on that set after a few installs), the page does the same itself
+  (`pageComeBack`): it asks the TV for `PowerState` and the running store apps and reopens itself with `eden_resume`,
+  and About says *the page does the work*. The idea, and
   the app-control names, are Skylight's (github.com/SaudSatopay/skylight-tizen, MIT); it is why `tizen/build.py` packs
   `watch.js` and why the widget has `application.info`.
