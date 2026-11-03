@@ -504,11 +504,29 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 /* See more: the tab's titles past the picks, 12 large posters a page, the focused one lifted with a lit edge (as the
    picks), on a solid dark page: the home screen doesn't show through. */
 #browse { background: #121214; }
-#browse .sub { position: absolute; left: 0; right: 0; top: 140px; text-align: center; font-size: 26px; color: rgba(255, 255, 255, 0.65); }
+#browse h2 { top: 46px; }
+#browse .sub { position: absolute; left: 0; right: 0; top: 102px; text-align: center; font-size: 26px; color: rgba(255, 255, 255, 0.65); }
 #browse .status { position: absolute; left: 0; right: 0; top: 500px; text-align: center; font-size: 30px; color: rgba(255, 255, 255, 0.65); }
-#browse .dots { position: absolute; left: 0; right: 0; top: 1040px; text-align: center; font-size: 0; }
+#browse .dots { position: absolute; left: 0; right: 0; top: 1060px; text-align: center; font-size: 0; }
 .dot { display: inline-block; width: 10px; height: 10px; margin: 0 5px; border-radius: 5px; background: rgba(255, 255, 255, 0.3); }
 .dot.on { width: 30px; background: #FFF; }
+/* The pills over the posters: See more's genres, My lists' lists. The strip slides to keep the focused one in view. */
+#browse .pills { position: absolute; left: 90px; right: 90px; top: 150px; height: 64px; overflow: hidden; }
+#browse .strip { position: absolute; left: 0; top: 4px; white-space: nowrap; -webkit-transition: -webkit-transform 0.25s; transition: transform 0.25s; }
+.pill {
+  display: inline-block;
+  margin-right: 14px;
+  padding: 10px 26px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 26px;
+  font-weight: 600;
+  -webkit-transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s;
+}
+.pill.on { background: rgba(255, 255, 255, 0.28); color: #FFF; }
+.pill.focus { background: #FFF; color: #1D1D1F; }
 .bcell { position: absolute; width: 240px; height: 410px; }
 .bcell .poster {
   position: absolute;
@@ -565,6 +583,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   transition: transform 0.15s, background-color 0.15s, color 0.15s;
 }
 .tbtn .sym { width: 28px; height: 28px; margin-right: 12px; vertical-align: -5px; }
+/* On a list already (Liked, Already seen, Don't like): a lighter button, and OK takes it off. */
+.tbtn.on { background: rgba(255, 255, 255, 0.3); }
 .tbtn.focus { background: #FFF; color: #1D1D1F; -webkit-transform: scale(1.06); transform: scale(1.06); }
 
 /* The See more card at the end of the picks: a dashed outline, so it doesn't read as one more title. */

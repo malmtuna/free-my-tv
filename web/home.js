@@ -363,7 +363,7 @@
   // MARK: - Focus
 
   var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', BROWSE: 'browse', TITLE: 'title', TRAILER: 'trailer'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, titleButton: 0};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, browse: 0, titleButton: 0, pill: 0};
   var cards = [];
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.BROWSE || st.zone === Z.TITLE || st.zone === Z.TRAILER; }
@@ -389,7 +389,8 @@
     list = document.querySelectorAll('#titlebox .tbtn');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TITLE && st.titleButton === i);
     list = document.querySelectorAll('#browse .bcell');
-    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.BROWSE && st.browse === i);
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.BROWSE && !onPills && st.browse === i);
+    focusPills();
     list = document.querySelectorAll('#apps .cell');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.APPS && st.grid === i);
     var rows = Math.max(1, Math.ceil(others.length / 5)), r = Math.floor(st.grid / 5), first = Math.max(0, Math.min(rows - 3, r - 1));
@@ -432,8 +433,9 @@
 
   var TAB_KIND = [null, 'movie', 'tv'];
 
-  /** The title box's marking buttons: what each marks the title as, and its label. */
-  var CARD_BUTTONS = [['seen', 'Already seen'], ['disliked', "Don't like"]];
+  /** The title box's list buttons: the list, its button, and its button once the title is on it (OK then undoes it). */
+  var LIST_BUTTONS = [['liked', 'Like', 'Liked', 'thumb_up'], ['seen', 'Already seen', 'Already seen', 'check'], ['disliked', "Don't like", "Don't like", 'check']];
+  var LIST_NAMES = {liked: 'Liked', seen: 'Already seen', disliked: "Don't like"};
 
   /** The See more card's place in the row of picks (renderCards): not a title, so it never opens wide or lends a photo. */
   var SEE_MORE = {id: 'see-more', backdrop: '', meta: '', more: true};
@@ -449,10 +451,10 @@
     }
     var buttons = $('buttons');
     buttons.innerHTML = '';
-    var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['settings', tr('light|Settings')]];
-    for (var b = 0; b < 3; b++) {
-      var r = el('button', 'round' + (b === 2 ? ' last' : ''), buttons);
-      r.style.left = (1596 + 88 * b) + 'px';
+    var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['lists', tr('My lists')], ['settings', tr('light|Settings')]];
+    for (var b = 0; b < defs.length; b++) {
+      var r = el('button', 'round' + (b === defs.length - 1 ? ' last' : ''), buttons);
+      r.style.left = (1508 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
       hover(r, Z.TOP, 3 + b);
@@ -797,45 +799,108 @@
     updateFocus();
   }
 
-  // MARK: - See more: the tab's titles past the picks, 12 posters a page; ▼ on the last row turns to the next page
+  // MARK: - See more and My lists: 12 posters a page, ▼ on the last row turns to the next page; a row of pills on top
+  // (See more: All and the genres; My lists: Liked, Already seen, Don't like), reached with ▲ from the first row
 
   var browsing = null, browsePage = 0, browsePages = 1, browseTitles = [], browseSeq = 0, BROWSE_COLS = 6;
+  var browseMode = 'more', browseFrom = Z.CARDS, browseList = 'liked', browseGenre = null, pills = [], onPills = false;
 
+  /** See more, for the tab the picks are on, with the genres to filter by. */
   function openBrowse() {
-    browsing = Data.browse(TAB_KIND[st.tab]);
+    browseMode = 'more';
+    browseFrom = Z.CARDS;
+    browseGenre = null;
+    pills = [{label: tr('genre|All'), on: true, run: function () { pickGenre(null); }}];
+    var kind = TAB_KIND[st.tab];
+    Data.genres(kind, function (list) {
+      if (browseMode !== 'more' || !browsing) return;
+      for (var i = 0; i < list.length; i++) {
+        (function (g) { pills.push({label: g.name, genre: g, run: function () { pickGenre(g); }}); })(list[i]);
+      }
+      renderBrowse('');
+    });
+    startBrowse(Data.browse(kind, null));
+  }
+
+  /** My lists, on one of them ('liked', 'seen', 'disliked'). */
+  function openLists(name) {
+    browseMode = 'lists';
+    browseFrom = st.zone === Z.SETTINGS ? Z.SETTINGS : st.zone;
+    browseList = name;
+    startBrowse(Data.lists(name));
+  }
+
+  function startBrowse(session) {
+    browsing = session;
     browseTitles = [];
     browsePages = 1;
+    onPills = false;
+    st.pill = 0;
     st.zone = Z.BROWSE;
     setClass($('browse'), 'open', true);
     showBrowsePage(0, 0);
   }
 
-  /** Back to the row of picks, on the See more card. */
+  /** My lists' pills: each list, with how many it holds. */
+  function listPills() {
+    pills = [];
+    for (var i = 0; i < LIST_BUTTONS.length; i++) {
+      (function (name, index) {
+        pills.push({label: tr(LIST_NAMES[name]) + '  ' + Prefs.listCount(name), on: name === browseList, run: function () {
+          browseList = name;
+          startBrowse(Data.lists(name));
+          onPills = true;   // stay on the pills, to look at another list
+          st.pill = index;
+          updateFocus();
+        }});
+      })(LIST_BUTTONS[i][0], i);
+    }
+    if (!onPills) for (var j = 0; j < pills.length; j++) if (pills[j].on) st.pill = j;
+  }
+
+  function pickGenre(g) {
+    browseGenre = g;
+    for (var i = 0; i < pills.length; i++) pills[i].on = pills[i].genre === g || (!g && !pills[i].genre);
+    var keep = st.pill;
+    startBrowse(Data.browse(TAB_KIND[st.tab], g));
+    onPills = true;   // stay on the pills, where the next genre is
+    st.pill = keep;
+    updateFocus();
+  }
+
+  /** Back to where it was opened from: the row of picks, the top buttons or Home Settings. */
   function closeBrowse() {
     setClass($('browse'), 'open', false);
     browsing = null;
     browseSeq++;
-    st.zone = Z.CARDS;
+    if (browseFrom === Z.SETTINGS) {
+      openSettings();
+      for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].lists) st.row = i;
+    } else {
+      st.zone = browseFrom;
+    }
     updateFocus();
   }
 
   /** Page n, its titles fetched first if need be; the focus lands at `focus` (a place on the page). */
   function showBrowsePage(n, focus) {
     var mine = ++browseSeq, session = browsing;
+    if (browseMode === 'lists') listPills();
     if (!browseTitles.length) renderBrowse(tr('Loading…'));
     session.page(n, function (titles, pages) {
       if (mine !== browseSeq || browsing !== session) return;   // closed, or another page asked for since
-      if (!titles.length && n > 0) return;                       // nothing past here: stay on this page
+      if (!titles.length && n > 0) { showBrowsePage(n - 1, focus); return; }   // its last title left: the page before
       browsePage = n;
       browsePages = pages;
       browseTitles = titles;
       st.browse = Math.min(focus, Math.max(0, titles.length - 1));
-      renderBrowse(titles.length ? '' : tr('Nothing more to show.'));
+      if (!titles.length) onPills = true;
+      renderBrowse(titles.length ? '' : browseMode === 'lists' ? tr('Nothing on this list yet.') : tr('Nothing more to show.'));
       // The ratings come in one by one; a title IMDb rates under the setting leaves, and the page fills up again.
       session.rate(titles, function (p) {
         if (mine === browseSeq) rateBrowsed(p);
       }, function () {
-        if (mine !== browseSeq) return;
+        if (mine !== browseSeq || browseMode === 'lists') return;
         session.page(n, function (again, total) {
           if (mine !== browseSeq || again.length === titles.length && again.every(function (p, i) { return p === titles[i]; })) return;
           browseTitles = again;
@@ -848,8 +913,10 @@
   }
 
   function heading() {
-    var name = [tr('Explore'), tr('Movies'), tr('Shows')][st.tab], min = Prefs.minRating();
     var page = trf('Page {n} of {total}', {n: browsePage + 1, total: browsePages});
+    if (browseMode === 'lists') return {title: tr('My lists'), sub: page};
+    var name = [tr('Explore'), tr('Movies'), tr('Shows')][st.tab], min = Prefs.minRating();
+    if (browseGenre) name += '  ·  ' + browseGenre.name;
     return {title: name, sub: min ? page + '  ·  ' + trf('IMDb {n}+', {n: min}) : page};
   }
 
@@ -857,22 +924,43 @@
     var sheet = $('browse'), h = heading(), grid = sheet.querySelector('.grid'), dots = sheet.querySelector('.dots');
     sheet.querySelector('h2').textContent = h.title;
     sheet.querySelector('.sub').textContent = h.sub;
+    var strip = sheet.querySelector('.pills .strip');
+    strip.innerHTML = '';
+    for (var p = 0; p < pills.length; p++) {
+      var pill = el('span', 'pill' + (pills[p].on ? ' on' : ''), strip, pills[p].label);
+      (function (index) {
+        pill.onclick = function () { st.pill = index; onPills = true; pills[index].run.call(pills[index]); };
+      })(p);
+    }
     grid.innerHTML = '';
     if (status) el('div', 'status', grid, status);
     for (var i = 0; i < browseTitles.length; i++) {
-      var p = browseTitles[i], cell = el('div', 'bcell', grid);
+      var t = browseTitles[i], cell = el('div', 'bcell', grid);
       cell.style.left = (90 + (i % BROWSE_COLS) * 300) + 'px';   // 6 of 240, 60 apart, centred
-      cell.style.top = (200 + Math.floor(i / BROWSE_COLS) * 420) + 'px';
+      cell.style.top = (240 + Math.floor(i / BROWSE_COLS) * 410) + 'px';
       var poster = el('div', 'poster', cell);
-      poster.style.backgroundImage = 'url(' + Data.image(p.poster || p.backdrop, p.poster ? 'w342' : 'w300') + ')';
-      cell.setAttribute('data-id', p.kind + ':' + p.id);
-      rateBrowsed(p, cell);
-      el('div', 'label', cell, p.title);
+      if (t.poster || t.backdrop) poster.style.backgroundImage = 'url(' + Data.image(t.poster || t.backdrop, t.poster ? 'w342' : 'w300') + ')';
+      cell.setAttribute('data-id', t.kind + ':' + t.id);
+      rateBrowsed(t, cell);
+      el('div', 'label', cell, t.title || '…');
       hover(cell, Z.BROWSE, i);
     }
     dots.innerHTML = '';
     if (browsePages > 1 && browsePages <= 12) for (var d = 0; d < browsePages; d++) el('span', 'dot' + (d === browsePage ? ' on' : ''), dots);
     updateFocus();
+  }
+
+  /** The pills' focus, and the strip slid so the focused one shows (the genres run past the screen's edge). */
+  function focusPills() {
+    var strip = $('browse').querySelector('.pills .strip');
+    if (!strip) return;
+    var list = strip.children, x = 0;
+    for (var i = 0; i < list.length; i++) {
+      setClass(list[i], 'focus', st.zone === Z.BROWSE && onPills && st.pill === i);
+      if (i === st.pill) x = list[i].offsetLeft;
+    }
+    var shift = Math.max(0, x - 700);
+    strip.style.webkitTransform = strip.style.transform = 'translateX(' + (-shift) + 'px)';
   }
 
   /** A title's IMDb score on its poster, once it's known. */
@@ -883,8 +971,14 @@
     el('div', 'rate', cell.querySelector('.poster'), 'IMDb ' + m[1]);
   }
 
-  /** Within the page; ▼ past the last row turns to the next page, ▲ past the first to the one before. */
+  /** On the pills or the page; ▼ past the last row turns to the next page, ▲ past the first to the one before. */
   function moveBrowse(dx, dy) {
+    if (onPills) {
+      if (dx) st.pill = Math.max(0, Math.min(pills.length - 1, st.pill + dx));
+      else if (dy > 0 && browseTitles.length) onPills = false;
+      updateFocus();
+      return;
+    }
     var n = browseTitles.length, col = st.browse % BROWSE_COLS, row = Math.floor(st.browse / BROWSE_COLS);
     var rows = Math.ceil(n / BROWSE_COLS);
     if (dx) {
@@ -896,6 +990,7 @@
     } else if (dy < 0) {
       if (row > 0) st.browse -= BROWSE_COLS;
       else if (browsePage > 0) { showBrowsePage(browsePage - 1, Data.BROWSE_PAGE - BROWSE_COLS + col); return; }
+      else if (pills.length) onPills = true;
     }
     updateFocus();
   }
@@ -928,6 +1023,7 @@
     titlePick = null;
     titleSeq++;
     st.zone = titleFrom || Z.CARDS;
+    if (st.zone === Z.BROWSE && browsing) showBrowsePage(browsePage, st.browse);
     updateFocus();
   }
 
@@ -950,10 +1046,12 @@
         playTrailer(info.trailer);
       }});
     }
-    for (var b = 0; b < CARD_BUTTONS.length; b++) {
-      (function (why, label) {
-        out.push({label: tr(label), run: function () { hideTitle(p, why); }});
-      })(CARD_BUTTONS[b][0], CARD_BUTTONS[b][1]);
+    for (var b = 0; b < LIST_BUTTONS.length; b++) {
+      (function (button) {
+        var on = Data.inList(p, button[0]);
+        out.push({label: tr(on ? button[2] : button[1]), symbol: on || button[0] === 'liked' ? button[3] : '', on: on,
+          run: function () { listButton(p, button[0], on); }});
+      })(LIST_BUTTONS[b]);
     }
     return out;
   }
@@ -1020,12 +1118,21 @@
     if (st.zone === Z.TRAILER) { st.zone = Z.TITLE; updateFocus(); }
   }
 
-  /** Already seen or Don't like from the box: it closes, and the title leaves the picks and See more. */
-  function hideTitle(p, why) {
+  /**
+   * A list button: on a list already, OK takes it off (the box stays). Like puts it on and the box stays; Already seen
+   * and Don't like put it on and the box closes, since it leaves the picks.
+   */
+  function listButton(p, name, on) {
+    if (on) {
+      Data.unmark(p, name);
+      toast(trf('Taken off {list}.', {list: tr(LIST_NAMES[name])}));
+      renderTitle();
+      return;
+    }
+    Data.mark(p, name);
+    if (name === 'liked') { toast(trf('{title} is in Liked.', {title: p.title})); renderTitle(); return; }
     closeTitle();
-    Data.hide(p, why);
     toast(trf("{title} won't be recommended again.", {title: p.title}));
-    if (st.zone === Z.BROWSE && browsing) showBrowsePage(browsePage, st.browse);
   }
 
   function renderTitle() {
@@ -1053,6 +1160,7 @@
     var row = el('div', 'buttons', box);
     for (var b = 0; b < titleButtons.length; b++) {
       var btn = el('span', 'tbtn', row);
+      if (titleButtons[b].on) btn.className += ' on';
       if (titleButtons[b].symbol) sym(titleButtons[b].symbol, btn);
       btn.appendChild(document.createTextNode(titleButtons[b].label));
       btn.onclick = titleButtons[b].run;
@@ -1086,21 +1194,6 @@
   /** Picks per tab: a few steps up to 30, so the arrows needn't go one by one. */
   var CARD_COUNTS = [3, 4, 5, 6, 8, 10, 15, 20, 25, 30];
 
-  var unhideAt = 0;
-
-  /** Hidden titles: the first OK asks, a second within 5 s brings every marked title back. */
-  function unhideAll() {
-    if (!Prefs.hiddenCount()) { toast(tr('No titles are hidden.')); return; }
-    if (Date.now() - unhideAt > 5000) {
-      unhideAt = Date.now();
-      toast(tr('Press OK again to show every hidden title again.'));
-      return;
-    }
-    unhideAt = 0;
-    Data.unhideAll();
-    toast(tr('Hidden titles can be recommended again.'));
-  }
-
   /** The lowest IMDb rating a pick may have: 0 is any. */
   var MIN_RATINGS = [0, 5, 6, 6.5, 7, 7.5, 8];
 
@@ -1122,8 +1215,8 @@
         step: function (d) { cycle('cards', CARD_COUNTS, Prefs.cards(), d); renderCards(); Data.refresh(); }},
       {label: tr('Lowest IMDb rating'), value: Prefs.minRating() ? String(Prefs.minRating()) : tr('rating|Any'),
         step: function (d) { cycle('minRating', MIN_RATINGS, Prefs.minRating(), d); renderCards(); Data.refresh(); }},
-      {label: tr('Hidden titles'), value: String(Prefs.hiddenCount()), opens: true,
-        step: function (d) { if (d >= 0) unhideAll(); }},
+      {label: tr('My lists'), value: trf('{n} liked · {m} hidden', {n: Prefs.listCount('liked'), m: Prefs.hiddenCount()}), opens: true, lists: true,
+        step: function (d) { if (d >= 0) { setClass($('settings'), 'open', false); openLists('liked'); } }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
@@ -1715,6 +1808,7 @@
         if (st.top < 3) return;
         if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
         else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        else if (st.top === 5) openLists('liked');
         else openSettings();
         return;
       case Z.CARDS:
@@ -1731,7 +1825,8 @@
         if (others[st.grid]) launcher(others[st.grid].id, others[st.grid].title)();
         return;
       case Z.BROWSE:
-        if (browseTitles[st.browse]) openTitle(browseTitles[st.browse]);
+        if (onPills) { if (pills[st.pill]) pills[st.pill].run.call(pills[st.pill]); }
+        else if (browseTitles[st.browse]) openTitle(browseTitles[st.browse]);
         return;
       case Z.TITLE:
         if (titleButtons[st.titleButton]) titleButtons[st.titleButton].run();
@@ -1792,7 +1887,7 @@
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(5, st.top + dx));   // without the picks the tabs can't hold focus
+          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(6, st.top + dx));   // without the picks the tabs can't hold focus
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
@@ -1873,7 +1968,7 @@
       else if (zone === Z.SHELF) st.shelf = index;
       else if (zone === Z.DRAWER) st.drawer = index;
       else if (zone === Z.APPS) st.grid = index;
-      else if (zone === Z.BROWSE) st.browse = index;
+      else if (zone === Z.BROWSE) { st.browse = index; onPills = false; }
       else if (zone === Z.TITLE) st.titleButton = index;
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;

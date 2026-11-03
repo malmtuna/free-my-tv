@@ -24,6 +24,7 @@ MAP = {
     "accessibility": ("accessibility_new", 0),
     "lightbulb": ("lightbulb", 1), "toggle": ("toggle_on", 1), "fan": ("mode_fan", 1), "blinds": ("blinds", 1),
     "bolt": ("bolt", 1), "smart_button": ("smart_button", 1),
+    "thumb_up": ("thumb_up", 1), "lists": ("bookmarks", 1),
 }
 
 

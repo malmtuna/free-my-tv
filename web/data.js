@@ -79,16 +79,36 @@ var Prefs = (function () {
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
-    /** A title ("movie:123") marked Already seen or Don't like: never recommended again. */
-    hidden: function (id) { return pick('seenTitles', []).indexOf(id) >= 0 || pick('dislikedTitles', []).indexOf(id) >= 0; },
-    /** Marks a title: 'seen' or 'disliked' (each list keeps its newest 2,000). */
-    hide: function (id, why) {
-      var name = why === 'seen' ? 'seenTitles' : 'dislikedTitles', list = pick(name, []).filter(function (x) { return x !== id; });
+    /**
+     * Your lists of titles ("movie:123"), each its newest 2,000: 'liked' (the thumbs up), 'seen' (Already seen) and
+     * 'disliked' (Don't like). The last two keep a title out of the picks, and a title is in one of them at most. Each
+     * title's name and pictures are kept beside them (listInfo), for My lists.
+     */
+    inList: function (name, id) { return pick(name + 'Titles', []).indexOf(id) >= 0; },
+    /** A list, the newest first. */
+    list: function (name) { return pick(name + 'Titles', []).slice().reverse(); },
+    addTo: function (name, id, info) {
+      var from = name === 'liked' ? ['liked'] : ['seen', 'disliked'];
+      for (var i = 0; i < from.length; i++) this.removeFrom(from[i], id);
+      var list = pick(name + 'Titles', []).slice();
       list.push(id);
-      this.set(name, list.slice(-2000));
+      this.set(name + 'Titles', list.slice(-2000));
+      if (info) this.setListInfo(id, info);
     },
+    removeFrom: function (name, id) { this.set(name + 'Titles', pick(name + 'Titles', []).filter(function (x) { return x !== id; })); },
+    /** A listed title's {title, poster, backdrop}, or null (titles marked before the lists kept them). */
+    listInfo: function (id) { return pick('listInfo', {})[id] || null; },
+    setListInfo: function (id, info) {
+      var all = pick('listInfo', {}), kept = {};
+      all[id] = info;
+      // Only what a list still holds: a title taken off every list leaves its name and pictures behind.
+      for (var key in all) if (all.hasOwnProperty(key) && (this.inList('liked', key) || this.inList('seen', key) || this.inList('disliked', key))) kept[key] = all[key];
+      this.set('listInfo', kept);
+    },
+    /** A title marked Already seen or Don't like: never recommended again. */
+    hidden: function (id) { return this.inList('seen', id) || this.inList('disliked', id); },
     hiddenCount: function () { return pick('seenTitles', []).length + pick('dislikedTitles', []).length; },
-    unhideAll: function () { this.set('seenTitles', []); this.set('dislikedTitles', []); },
+    listCount: function (name) { return pick(name + 'Titles', []).length; },
     /** The lowest IMDb score a pick may have (0: any). TMDB's score stands in until a pick's IMDb score is known. */
     minRating: function () { return +pick('minRating', 6) || 0; },
     /** Picks per tab: 3 (as it was) up to 30. */
@@ -804,6 +824,80 @@ var Data = (function () {
       });
   }
 
+  // MARK: - Genres, for See more's filter
+
+  var genreLists = {};   // 'movie' or 'tv' -> TMDB's [{id, name}], in the TV's language
+
+  /**
+   * The genres to filter a tab by: done([{name, movie, tv}]), each with TMDB's number for films and for shows (null where
+   * the kind hasn't it); for both kinds (null), the ones of either, matched by name.
+   */
+  function genres(kind, done) {
+    var kinds = kind ? [kind] : ['movie', 'tv'];
+    each(kinds, function (k, next) {
+      if (genreLists[k]) { next(); return; }
+      tmdb('/genre/' + k + '/list?language=' + lang(), function (err, o) {
+        if (!err && o && o.genres) genreLists[k] = o.genres;
+        next();
+      });
+    }, function () {
+      var out = [], byName = {};
+      for (var i = 0; i < kinds.length; i++) {
+        var list = genreLists[kinds[i]] || [];
+        for (var j = 0; j < list.length; j++) {
+          var n = genre(list[j].name), g = byName[n];
+          if (!g) { g = byName[n] = {name: n, movie: null, tv: null}; out.push(g); }
+          g[kinds[i]] = list[j].id;
+        }
+      }
+      out.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+      done(out);
+    });
+  }
+
+  // MARK: - My lists: Liked, Already seen and Don't like, a page at a time
+
+  /**
+   * A session over one of your lists, as browse is over TMDB's: page(n, done(titles, pages)) and rate(). A title marked
+   * before the lists kept names and pictures gets them from TMDB once, as its page is shown.
+   */
+  function lists(name) {
+    function titles() {
+      return Prefs.list(name).map(function (key) {
+        var cut = key.indexOf(':'), info = Prefs.listInfo(key) || {};
+        return {id: +key.slice(cut + 1), kind: key.slice(0, cut), title: info.title || '', poster: info.poster || '',
+          backdrop: info.backdrop || '', meta: '', app: null, detailed: false, unnamed: !info.title};
+      });
+    }
+
+    function name1(p, done) {
+      tmdb('/' + p.kind + '/' + p.id + '?language=' + lang(), function (err, o) {
+        if (!err && o) {
+          p.title = (p.kind === 'movie' ? o.title : o.name) || p.title;
+          p.poster = o.poster_path || '';
+          p.backdrop = o.backdrop_path || '';
+          if (p.title) { p.unnamed = false; Prefs.setListInfo(keyOf(p), {title: p.title, poster: p.poster, backdrop: p.backdrop}); }
+        }
+        done();
+      });
+    }
+
+    return {
+      page: function (n, done) {
+        var all = titles(), page = all.slice(n * BROWSE_PAGE, (n + 1) * BROWSE_PAGE);
+        each(page.filter(function (p) { return p.unnamed; }), name1, function () {
+          done(page, Math.max(1, Math.ceil(all.length / BROWSE_PAGE)));
+        });
+      },
+      rate: function (titles, each1, done) {
+        each(titles, function (p, next) {
+          if (!needsRating(p)) { next(); return; }
+          rate(p, function () { each1(p); next(); });
+        }, done);
+      }
+    };
+  }
+
   // MARK: - See more: the same titles past what the tabs show, a page at a time
 
   var BROWSE_PAGE = 12;   // 6 across, 2 rows of large posters
@@ -812,12 +906,15 @@ var Data = (function () {
    * A See more session for a tab's kind ('movie', 'tv', or null for both, alternating). TMDB's pages come only as the
    * person reaches them, so nothing waits for a page nobody turns to.
    */
-  function browse(kind) {
-    var feeds = (kind ? [kind] : ['movie', 'tv']).map(function (k) { return {kind: k, got: [], next: 1, last: 1, total: 0}; });
+  function browse(kind, genre) {
+    // With a genre ({movie: 28, tv: 10759}: TMDB numbers them apart), only the kinds that have it.
+    var kinds = (kind ? [kind] : ['movie', 'tv']).filter(function (k) { return !genre || genre[k]; });
+    var feeds = kinds.map(function (k) { return {kind: k, got: [], next: 1, last: 1, total: 0}; });
     var list = [];
 
     function rebuild() {
       list = [];
+      if (!feeds.length) return;
       alternate(list, {}, feeds[0].got.filter(goodEnough), feeds[1] ? feeds[1].got.filter(goodEnough) : [], 100000);
     }
 
@@ -828,7 +925,7 @@ var Data = (function () {
       if (!f) { done(false); return; }
       catalogue(function (err, common) {
         if (err) { done(false); return; }
-        tmdb(discover(f.kind, false) + common + '&page=' + f.next, function (e, r) {
+        tmdb(discover(f.kind, false) + common + (genre ? '&with_genres=' + genre[f.kind] : '') + '&page=' + f.next, function (e, r) {
           f.next++;
           if (e || !r || !r.results) { f.last = 0; done(false); return; }   // this kind has no more for now
           f.last = Math.min(r.total_pages || 1, 500);   // TMDB serves 500 pages at most
@@ -965,10 +1062,19 @@ var Data = (function () {
     showcase: all,
     browse: browse,
     BROWSE_PAGE: BROWSE_PAGE,
-    /** A title marked Already seen ('seen') or Don't like ('disliked'): it leaves the picks now, and never comes back. */
-    hide: function (p, why) { Prefs.hide(keyOf(p), why); changed(); },
-    /** Every marked title back (Home Settings, Hidden titles). */
-    unhideAll: function () { Prefs.unhideAll(); changed(); },
+    /**
+     * A title onto a list ('liked', 'seen' or 'disliked'), with its name and pictures for My lists. Already seen and
+     * Don't like take it out of the picks now, and keep it out.
+     */
+    mark: function (p, name) {
+      Prefs.addTo(name, keyOf(p), {title: p.title, poster: p.poster || '', backdrop: p.backdrop || ''});
+      changed();
+    },
+    /** Off a list again: off Already seen or Don't like, it can be recommended again. */
+    unmark: function (p, name) { Prefs.removeFrom(name, keyOf(p)); changed(); },
+    inList: function (p, name) { return Prefs.inList(name, keyOf(p)); },
+    lists: lists,
+    genres: genres,
     goodEnough: goodEnough,
     /** A See more title's details (which of the TV's apps has it), before it opens: done(error). */
     details: details,
